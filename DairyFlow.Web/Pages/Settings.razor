@@ -1,0 +1,102 @@
+@page "/settings"
+@inject HttpClient Http
+@inject AppState State
+@implements IDisposable
+
+<PageTitle>@L["settings.title"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">⚙️ @L["settings.title"]</div>
+</div>
+
+@if (loading)
+{
+    <div class="loading-spinner">@L["btn.saving"]</div>
+}
+else
+{
+    <div class="card" style="max-width:520px">
+        <div class="card-header">
+            <div class="card-title">🏷️ @L["settings.tagging"]</div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">@L["settings.prefix"]</label>
+            <input class="form-control" @bind="prefix" placeholder="COW"
+                   style="text-transform:uppercase" maxlength="10"
+                   disabled="@(!State.IsOwnerOrManager)" />
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">@L["settings.prefix_hint"]</div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">@L["settings.next_seq"]</label>
+            <input type="number" class="form-control" @bind="nextSeq" min="1"
+                   disabled="@(!State.IsOwnerOrManager)" />
+        </div>
+
+        <div style="padding:12px 0 16px">
+            <span style="font-size:13px;color:var(--text-muted)">@L["settings.next_tag"]: </span>
+            <strong style="font-size:16px;color:var(--primary);font-family:var(--font-mono)">@PreviewTag</strong>
+        </div>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+        }
+
+        @if (State.IsOwnerOrManager)
+        {
+            <div style="display:flex;gap:10px">
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    bool loading = true, saving;
+    bool isError;
+    string message = "", prefix = "COW";
+    int nextSeq = 1;
+
+    string PreviewTag => string.IsNullOrWhiteSpace(prefix)
+        ? nextSeq.ToString("D5")
+        : $"{prefix.Trim().ToUpper()}-{nextSeq:D5}";
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var result = await Http.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/settings");
+            prefix  = result.TryGetProperty("tagPrefix",      out var p) ? p.GetString() ?? "COW" : "COW";
+            nextSeq = result.TryGetProperty("nextTagSequence", out var n) ? n.GetInt32()           : 1;
+        }
+        catch { }
+        finally { loading = false; }
+    }
+
+    async Task SaveAsync()
+    {
+        message = ""; saving = true;
+        try
+        {
+            var resp = await Http.PutAsJsonAsync("/api/settings", new { TagPrefix = prefix.Trim().ToUpper(), NextTagSequence = nextSeq });
+            if (resp.IsSuccessStatusCode)
+            {
+                isError = false;
+                message = L["settings.saved"];
+                var result = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+                prefix  = result.TryGetProperty("tagPrefix",      out var p) ? p.GetString() ?? prefix : prefix;
+                nextSeq = result.TryGetProperty("nextTagSequence", out var n) ? n.GetInt32()            : nextSeq;
+            }
+            else { isError = true; message = L["settings.err.save"]; }
+        }
+        catch { isError = true; message = L["settings.err.save"]; }
+        finally { saving = false; }
+    }
+}

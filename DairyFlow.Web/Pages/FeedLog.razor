@@ -1,0 +1,544 @@
+@page "/feed-log"
+@inject HttpClient Http
+@inject AppState State
+@inject IOfflineStorageService Store
+@inject ISyncService Sync
+@implements IDisposable
+
+<PageTitle>@L["nav.feedlog"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">📋 @L["feedlog.title"]</div>
+    <button class="btn btn-primary" @onclick="OpenAdd">@L["feedlog.add"]</button>
+</div>
+
+@* ── Date filter ── *@
+<div class="filter-bar">
+    <label class="form-label" style="margin:0;white-space:nowrap">@L["lbl.date"]:</label>
+    <input type="date" class="form-control form-control-sm" value="@selectedDate"
+           @onchange="OnDateChanged" style="width:160px" />
+    <span style="color:var(--text-muted);font-size:13px">@L["feedlog.total_today"]: @totalKgToday kg</span>
+    <span class="feedlog-metric"><span class="feedlog-metric-label">@L["feedlog.daily_cost"]</span><span class="feedlog-metric-value">@totalCostToday.ToString("N2")</span></span>
+    <span class="feedlog-metric"><span class="feedlog-metric-label">@L["feedlog.cows_fed"]</span><span class="feedlog-metric-value">@cowsFedToday</span></span>
+</div>
+
+@* ── Log form ── *@
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="CloseForm">
+        <div class="modal" @onclick:stopPropagation style="max-width:640px">
+            <h3>@(editingId.HasValue ? L["feedlog.edittitle"] : L["feedlog.addtitle"])</h3>
+
+            @* Cow + date apply to every feed line below *@
+            <div class="form-row">
+                <div class="form-group" style="flex:2">
+                    <label class="form-label">@L["feedlog.cow"]</label>
+                    <select class="form-control" @bind="form.CowIdStr" @bind:after="OnCowChanged">
+                        <option value="">— @L["feedlog.cowph"] —</option>
+                        @foreach (var c in cows)
+                        {
+                            <option value="@c.Id.ToString()">@c.TagNumber @(c.Name != null ? $"— {c.Name}" : "")</option>
+                        }
+                    </select>
+                    @if (!string.IsNullOrEmpty(templateNote))
+                    {
+                        <div style="font-size:12px;color:var(--primary);margin-top:5px">✓ @templateNote</div>
+                    }
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">@L["lbl.date"]</label>
+                    <input type="date" class="form-control" value="@form.LogDate"
+                           @onchange="e => form.LogDate = e.Value?.ToString() ?? form.LogDate" />
+                </div>
+            </div>
+
+            <label class="form-label">@L["feedlog.feeds"]</label>
+            <table class="data-table" style="margin-bottom:8px">
+                <thead>
+                    <tr>
+                        <th style="width:42%">@L["feedlog.feed"]</th>
+                        <th style="width:22%">@L["feedlog.qty_kg"]</th>
+                        <th>@L["lbl.notes"]</th>
+                        @if (!editingId.HasValue) { <th style="width:36px"></th> }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in form.Items)
+                    {
+                        <tr>
+                            <td>
+                                <select class="form-control" @bind="item.FeedIdStr">
+                                    <option value="">— @L["feedlog.feedph"] —</option>
+                                    @foreach (var f in feeds)
+                                    {
+                                        <option value="@f.Id.ToString()">@f.Name (@f.CurrentStock @f.Unit @L["feedlog.in_stock"])</option>
+                                    }
+                                </select>
+                            </td>
+                            <td><input type="number" step="0.1" min="0.1" class="form-control" @bind="item.QuantityKg" /></td>
+                            <td><input class="form-control" @bind="item.Notes" /></td>
+                            @if (!editingId.HasValue)
+                            {
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-outline" title="@L["feedlog.remove"]"
+                                            disabled="@(form.Items.Count <= 1)" @onclick="() => RemoveItem(item)">✕</button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (!editingId.HasValue)
+            {
+                <button type="button" class="btn btn-sm btn-outline" @onclick="AddItem">@L["feedlog.addanother"]</button>
+            }
+
+            @if (!string.IsNullOrEmpty(formError))
+            {
+                <div class="alert alert-danger" style="margin-top:12px">@formError</div>
+            }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseForm">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Daily summary chips ── *@
+@if (summary.Any())
+{
+    <div class="summary-cards">
+        @foreach (var s in summary)
+        {
+            var sname  = s.TryGetProperty("name",       out var n) ? n.GetString() : "";
+            var sunit  = s.TryGetProperty("unit",       out var u) ? u.GetString() : "kg";
+            var stotal = s.TryGetProperty("totalKg",    out var t) ? t.GetDecimal() : 0;
+            var scows  = s.TryGetProperty("cowCount",   out var c) ? c.GetInt32()   : 0;
+            <div class="summary-chip">
+                <div class="summary-chip-label">@sname</div>
+                <div class="summary-chip-value">@stotal kg</div>
+                <div style="font-size:11px;color:var(--text-muted)">@scows @L["feedlog.cows"]</div>
+            </div>
+        }
+    </div>
+}
+
+@if (loading)
+{
+    <div class="loading-spinner">@L["btn.saving"]</div>
+}
+else
+{
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["feedlog.cow"]</th>
+                    <th>@L["feedlog.feeds"]</th>
+                    <th>@L["lbl.cost"]</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var grp in logs.GroupBy(l => l.TryGetProperty("cowId", out var ci) ? ci.GetString() ?? "" : ""))
+                {
+                    var first     = grp.First();
+                    var cowId     = grp.Key;
+                    var cowTag    = first.TryGetProperty("cowTag",  out var ct) ? ct.GetString()  : "";
+                    var cowName   = first.TryGetProperty("cowName", out var cn) ? cn.GetString()  : null;
+                    var feedCount = grp.Count();
+                    var totalCost = grp.Sum(l => l.TryGetProperty("cost", out var c) ? c.GetDecimal() : 0);
+                    var expanded  = expandedCows.Contains(cowId);
+
+                    @* ── Parent row: cow · # feeds · total cost ── *@
+                    <tr class="feedlog-parent @(expanded ? "is-open" : "")" @onclick="() => ToggleCow(cowId)">
+                        <td>
+                            <span class="feedlog-caret">@(expanded ? "▾" : "▸")</span>
+                            <strong>@cowTag</strong>
+                            @if (!string.IsNullOrEmpty(cowName)) { <span style="color:var(--text-muted)"> @cowName</span> }
+                        </td>
+                        <td>@feedCount</td>
+                        <td><strong>@totalCost.ToString("N2")</strong></td>
+                        <td></td>
+                    </tr>
+
+                    @* ── Child rows: feed · quantity · cost ── *@
+                    @if (expanded)
+                    {
+                        <tr class="feedlog-child-head">
+                            <td style="padding-left:34px">@L["feedlog.feed"]</td>
+                            <td>@L["feedlog.qty_kg"]</td>
+                            <td>@L["lbl.cost"]</td>
+                            <td></td>
+                        </tr>
+                        @foreach (var log in grp)
+                        {
+                            var lid    = log.TryGetProperty("id",         out var i)  ? i.GetString()  : null;
+                            var feedNm = log.TryGetProperty("feedName",   out var fn) ? fn.GetString() : "";
+                            var feedUn = log.TryGetProperty("feedUnit",   out var fu) ? fu.GetString() : "kg";
+                            var qty    = log.TryGetProperty("quantityKg", out var q)  ? q.GetDecimal() : 0;
+                            var cost   = log.TryGetProperty("cost",       out var co) ? co.GetDecimal(): 0;
+                            var lnotes = log.TryGetProperty("notes",      out var nt) ? nt.GetString() : null;
+
+                            <tr class="feedlog-child">
+                                <td style="padding-left:34px">
+                                    @feedNm
+                                    @if (!string.IsNullOrEmpty(lnotes)) { <span style="color:var(--text-muted);font-size:12px"> — @lnotes</span> }
+                                </td>
+                                <td>@qty @feedUn</td>
+                                <td>@cost.ToString("N2")</td>
+                                <td>
+                                    @if (lid != null)
+                                    {
+                                        <button class="btn btn-sm btn-outline" @onclick="() => OpenEdit(log)" @onclick:stopPropagation>@L["btn.edit"]</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                }
+                @if (!logs.Any())
+                {
+                    <tr><td colspan="4" class="empty-row">@L["feedlog.empty"]</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    List<System.Text.Json.JsonElement> logs = new();
+    List<System.Text.Json.JsonElement> summary = new();
+    List<CowItem> cows = new();
+    List<FeedItem> feeds = new();
+    bool loading, showForm, saving;
+    string formError = "";
+    string selectedDate = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+    decimal totalKgToday;
+    decimal totalCostToday;
+    int cowsFedToday;
+    Guid? editingId;
+    HashSet<string> expandedCows = new();
+
+    FeedLogFormModel form = new();
+    string templateNote = "";
+
+    void ToggleCow(string cowId)
+    {
+        if (!expandedCows.Remove(cowId)) expandedCows.Add(cowId);
+    }
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    // Lookups for enriching offline logs (which lack server-computed cowTag/feedName/cost).
+    Dictionary<string, (string tag, string? name)> cowMap = new();
+    Dictionary<string, (string name, string unit, decimal cost)> feedMap = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCowsAsync();
+        await LoadFeedsAsync();
+        await LoadLogsAsync();
+    }
+
+    async Task LoadCowsAsync()
+    {
+        try
+        {
+            var cowResult = await Http.GetFromJsonAsync<System.Text.Json.JsonElement?>("/api/cows?pageSize=500");
+            var raw = cowResult.HasValue && cowResult.Value.TryGetProperty("data", out var data)
+                ? data.EnumerateArray().ToList() : new();
+            foreach (var c in raw) await Store.SaveAsync("Cows", c);
+            cows = raw.Select(ToCowItem).Where(c => c.Id != Guid.Empty).ToList();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            cows = (await Store.GetAllAsync<System.Text.Json.JsonElement>("Cows"))
+                .Select(ToCowItem).Where(c => c.Id != Guid.Empty).ToList();
+        }
+        catch { }
+        cowMap = cows.ToDictionary(c => c.Id.ToString(), c => (c.TagNumber, c.Name));
+    }
+
+    static CowItem ToCowItem(System.Text.Json.JsonElement c) => new CowItem
+    {
+        Id        = c.TryGetProperty("id", out var i) && Guid.TryParse(i.GetString(), out var g) ? g : Guid.Empty,
+        TagNumber = c.TryGetProperty("tagNumber", out var t) ? t.GetString() ?? "" : "",
+        Name      = c.TryGetProperty("name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String ? n.GetString() : null,
+    };
+
+    async Task LoadFeedsAsync()
+    {
+        try
+        {
+            var raw = await Http.GetFromJsonAsync<List<System.Text.Json.JsonElement>>("/api/feed") ?? new();
+            foreach (var f in raw) await Store.SaveAsync("Feeds", f);
+            feeds = raw.Select(ToFeedItem).ToList();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            feeds = (await Store.GetAllAsync<System.Text.Json.JsonElement>("Feeds"))
+                .Where(f => !f.TryGetProperty("isActive", out var a) || a.ValueKind != System.Text.Json.JsonValueKind.False)
+                .Select(ToFeedItem).ToList();
+        }
+        catch { }
+        feedMap = feeds.ToDictionary(f => f.Id.ToString(), f => (f.Name, f.Unit, f.CostPerUnit));
+    }
+
+    static FeedItem ToFeedItem(System.Text.Json.JsonElement f) => new FeedItem
+    {
+        Id           = f.TryGetProperty("id", out var i) && Guid.TryParse(i.GetString(), out var g) ? g : Guid.Empty,
+        Name         = f.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
+        Unit         = f.TryGetProperty("unit", out var u) && u.ValueKind == System.Text.Json.JsonValueKind.String ? u.GetString() ?? "kg" : "kg",
+        CurrentStock = f.TryGetProperty("currentStock", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.Number ? s.GetDecimal() : 0,
+        CostPerUnit  = f.TryGetProperty("costPerUnit", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.Number ? c.GetDecimal() : 0,
+    };
+
+    async Task LoadLogsAsync()
+    {
+        loading = true;
+        try
+        {
+            var date = selectedDate;
+            logs = (await Http.GetFromJsonAsync<System.Text.Json.JsonElement[]>($"/api/feedlogs?date={date}"))?.ToList() ?? new();
+            foreach (var l in logs) await Store.SaveAsync("FeedLogs", l);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — read the day's logs from local storage and enrich them for display.
+            logs = (await Store.GetAllAsync<System.Text.Json.JsonElement>("FeedLogs"))
+                .Where(l => LogDateKey(l) == selectedDate)
+                .Select(EnrichLog)
+                .ToList();
+        }
+        catch { }
+        finally
+        {
+            BuildSummary();
+            totalKgToday = logs.Sum(l => l.TryGetProperty("quantityKg", out var q) ? q.GetDecimal() : 0);
+            totalCostToday = logs.Sum(l => l.TryGetProperty("cost", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.Number ? c.GetDecimal() : 0);
+            cowsFedToday = logs.Select(l => l.TryGetProperty("cowId", out var ci) ? ci.GetString() : null)
+                               .Where(id => id != null).Distinct().Count();
+            loading = false;
+        }
+    }
+
+    static string LogDateKey(System.Text.Json.JsonElement log)
+    {
+        var raw = log.TryGetProperty("logDate", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String ? d.GetString() ?? "" : "";
+        return raw.Length >= 10 ? raw[..10] : raw;
+    }
+
+    // Turn a raw/local feed log into the enriched shape the table expects (cowTag, feedName, cost…),
+    // computing anything the server would have added from the cached cow + feed lookups.
+    System.Text.Json.JsonElement EnrichLog(System.Text.Json.JsonElement log)
+    {
+        string S(string k) => log.TryGetProperty(k, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() ?? "" : "";
+        decimal D(string k) => log.TryGetProperty(k, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number ? v.GetDecimal() : 0;
+
+        // Already enriched (came from the API) — keep as is.
+        if (log.TryGetProperty("feedName", out var fnEl) && fnEl.ValueKind == System.Text.Json.JsonValueKind.String) return log;
+
+        var cowId = S("cowId");
+        var feedId = S("feedId");
+        var qty = D("quantityKg");
+        cowMap.TryGetValue(cowId, out var cow);
+        feedMap.TryGetValue(feedId, out var feed);
+
+        return System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            id = S("id"),
+            cowId,
+            feedId,
+            logDate = S("logDate"),
+            quantityKg = qty,
+            notes = log.TryGetProperty("notes", out var nt) && nt.ValueKind == System.Text.Json.JsonValueKind.String ? nt.GetString() : null,
+            cowTag = cow.tag ?? "",
+            cowName = cow.name,
+            feedName = feed.name ?? "",
+            feedUnit = feed.unit ?? "kg",
+            cost = qty * (feed.cost)
+        });
+    }
+
+    // Per-feed daily summary chips, computed from the (enriched) logs so it works offline too.
+    void BuildSummary()
+    {
+        summary = logs
+            .GroupBy(l => l.TryGetProperty("feedName", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String ? n.GetString() ?? "" : "")
+            .Where(g => !string.IsNullOrEmpty(g.Key))
+            .Select(g => System.Text.Json.JsonSerializer.SerializeToElement(new
+            {
+                name = g.Key,
+                unit = g.First().TryGetProperty("feedUnit", out var u) && u.ValueKind == System.Text.Json.JsonValueKind.String ? u.GetString() : "kg",
+                totalKg = g.Sum(l => l.TryGetProperty("quantityKg", out var q) ? q.GetDecimal() : 0),
+                cowCount = g.Select(l => l.TryGetProperty("cowId", out var ci) ? ci.GetString() : null).Where(id => id != null).Distinct().Count()
+            }))
+            .ToList();
+    }
+
+    async Task OnDateChanged(ChangeEventArgs e)
+    {
+        selectedDate = e.Value?.ToString() ?? selectedDate;
+        await LoadLogsAsync();
+    }
+
+    void OpenAdd()
+    {
+        editingId = null;
+        form = new FeedLogFormModel { LogDate = selectedDate };
+        form.Items.Add(new FeedLineModel());
+        formError = "";
+        templateNote = "";
+        showForm = true;
+    }
+
+    // When a cow is picked, pre-fill the feed lines from its (gender, stage) feeding template.
+    async Task OnCowChanged()
+    {
+        templateNote = "";
+        if (editingId.HasValue) return;
+        if (!Guid.TryParse(form.CowIdStr, out var cowId) || cowId == Guid.Empty) return;
+        try
+        {
+            var items = await Http.GetFromJsonAsync<List<System.Text.Json.JsonElement>>($"/api/feeding-templates/for-cow/{cowId}");
+            if (items != null && items.Count > 0)
+            {
+                form.Items = items.Select(it => new FeedLineModel
+                {
+                    FeedIdStr  = it.TryGetProperty("feedId", out var f) ? f.GetString() ?? "" : "",
+                    QuantityKg = it.TryGetProperty("quantityKg", out var q) ? q.GetDecimal() : 0,
+                }).ToList();
+                templateNote = L["feedlog.template_applied"];
+            }
+        }
+        catch { }
+    }
+
+    void AddItem() => form.Items.Add(new FeedLineModel());
+
+    void RemoveItem(FeedLineModel item)
+    {
+        if (form.Items.Count > 1) form.Items.Remove(item);
+    }
+
+    async Task SaveAsync()
+    {
+        formError = "";
+        if (!Guid.TryParse(form.CowIdStr, out var cowId) || cowId == Guid.Empty)  { formError = L["feedlog.err.cow"];  return; }
+        if (!DateOnly.TryParseExact(form.LogDate, "yyyy-MM-dd", out var logDate))  { formError = L["feedlog.err.date"]; return; }
+
+        // Only lines that have both a feed and a positive quantity count.
+        var lines = new List<(Guid FeedId, decimal QuantityKg, string? Notes)>();
+        foreach (var it in form.Items)
+        {
+            if (!Guid.TryParse(it.FeedIdStr, out var feedId) || feedId == Guid.Empty) continue;
+            if (it.QuantityKg <= 0) continue;
+            lines.Add((feedId, it.QuantityKg, it.Notes));
+        }
+        if (lines.Count == 0) { formError = L["feedlog.err.items"]; return; }
+
+        saving = true;
+        try
+        {
+            System.Net.Http.HttpResponseMessage resp;
+            if (editingId.HasValue)
+            {
+                var l = lines[0];
+                var payload = new { CowId = cowId, l.FeedId, LogDate = logDate.ToString("yyyy-MM-dd"), l.QuantityKg, l.Notes };
+                resp = await Http.PutAsJsonAsync($"/api/feedlogs/{editingId}", payload);
+            }
+            else
+            {
+                var payload = new
+                {
+                    CowId = cowId,
+                    LogDate = logDate.ToString("yyyy-MM-dd"),
+                    Items = lines.Select(l => new { l.FeedId, l.QuantityKg, l.Notes }).ToArray()
+                };
+                resp = await Http.PostAsJsonAsync("/api/feedlogs/batch", payload);
+            }
+
+            if (resp.IsSuccessStatusCode) { CloseForm(); await LoadLogsAsync(); }
+            else
+            {
+                var body = await resp.Content.ReadAsStringAsync();
+                formError = $"{L["feed.err.save"]} ({(int)resp.StatusCode})";
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — save the feeding locally and queue it. Feed stock is decremented on the
+            // server when it syncs; we also drop the cached stock in-memory for immediate feedback.
+            var dateStr = logDate.ToString("yyyy-MM-dd");
+            if (editingId.HasValue)
+            {
+                var l = lines[0];
+                var id = editingId.Value;
+                var local = new { id = id.ToString(), cowId = cowId.ToString(), feedId = l.FeedId.ToString(), logDate = dateStr, quantityKg = l.QuantityKg, notes = l.Notes };
+                await Store.SaveAsync("FeedLogs", local);
+                await Sync.QueueChangeAsync("FeedLog", "UPDATE", id, local);
+            }
+            else
+            {
+                foreach (var l in lines)
+                {
+                    var id = Guid.NewGuid();
+                    var local = new { id = id.ToString(), cowId = cowId.ToString(), feedId = l.FeedId.ToString(), logDate = dateStr, quantityKg = l.QuantityKg, notes = l.Notes };
+                    await Store.SaveAsync("FeedLogs", local);
+                    await Sync.QueueChangeAsync("FeedLog", "CREATE", id, local);
+
+                    var f = feeds.FirstOrDefault(x => x.Id == l.FeedId);
+                    if (f != null) f.CurrentStock = Math.Max(0, f.CurrentStock - l.QuantityKg);
+                }
+            }
+            CloseForm();
+            await LoadLogsAsync();
+        }
+        catch (Exception ex) { formError = $"{L["feed.err.save"]}: {ex.Message}"; }
+        finally { saving = false; }
+    }
+
+    void OpenEdit(System.Text.Json.JsonElement log)
+    {
+        editingId = log.TryGetProperty("id", out var i) && Guid.TryParse(i.GetString(), out var g) ? g : (Guid?)null;
+        var dateStr = log.TryGetProperty("logDate", out var d) ? (d.GetString() ?? "")[..10] : selectedDate;
+        form = new FeedLogFormModel
+        {
+            CowIdStr = log.TryGetProperty("cowId", out var ci) ? ci.GetString() ?? "" : "",
+            LogDate  = dateStr,
+        };
+        form.Items.Add(new FeedLineModel
+        {
+            FeedIdStr  = log.TryGetProperty("feedId",     out var fi) ? fi.GetString() ?? "" : "",
+            QuantityKg = log.TryGetProperty("quantityKg", out var q)  ? q.GetDecimal()       : 0,
+            Notes      = log.TryGetProperty("notes",      out var nt) ? nt.GetString()        : null,
+        });
+        showForm  = true;
+        formError = "";
+    }
+
+    void CloseForm() { showForm = false; editingId = null; form = new FeedLogFormModel { LogDate = selectedDate }; formError = ""; }
+
+    class FeedLogFormModel
+    {
+        public string CowIdStr { get; set; } = "";
+        public string LogDate { get; set; } = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+        public List<FeedLineModel> Items { get; set; } = new();
+    }
+
+    class FeedLineModel
+    {
+        public string FeedIdStr { get; set; } = "";
+        public decimal QuantityKg { get; set; } = 5;
+        public string? Notes { get; set; }
+    }
+
+    class CowItem  { public Guid Id { get; set; } public string TagNumber { get; set; } = ""; public string? Name { get; set; } }
+    class FeedItem { public Guid Id { get; set; } public string Name { get; set; } = ""; public string Unit { get; set; } = "kg"; public decimal CurrentStock { get; set; } public decimal CostPerUnit { get; set; } }
+}

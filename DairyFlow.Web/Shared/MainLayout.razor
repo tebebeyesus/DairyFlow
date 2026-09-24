@@ -1,0 +1,112 @@
+@inherits LayoutComponentBase
+@inject AuthService Auth
+@inject AppState State
+@inject NavigationManager Nav
+@inject ISyncService Sync
+
+@if (!State.IsAuthenticated)
+{
+    @Body
+}
+else
+{
+    <div class="app-shell">
+        <header class="app-header">
+            <button class="hamburger @(State.IsSidebarOpen ? "open" : "")" @onclick="State.ToggleSidebar" aria-label="Menu">
+                <span></span><span></span><span></span>
+            </button>
+            <a class="header-logo" href="/">
+                <div class="header-logo-icon">🐄</div>
+                <span class="header-logo-text">DairyFlow</span>
+            </a>
+            <div class="header-spacer"></div>
+            <div class="header-actions">
+                <SyncIndicator />
+                <div class="lang-selector">
+                    <button class="lang-btn @(State.Lang == "en" ? "active" : "")" @onclick='() => State.SetLang("en")'>EN</button>
+                    <button class="lang-btn @(State.Lang == "am" ? "active" : "")" @onclick='() => State.SetLang("am")'>አማ</button>
+                </div>
+                <div class="user-avatar" title="@State.UserName">
+                    @(State.UserName.Length > 0 ? State.UserName[0].ToString().ToUpper() : "U")
+                </div>
+                <button class="btn btn-outline btn-sm header-logout" @onclick="LogoutAsync">@L["nav.logout"]</button>
+            </div>
+        </header>
+
+        @if (State.IsSidebarOpen)
+        {
+            <div class="sidebar-backdrop" @onclick="State.CloseSidebar"></div>
+        }
+
+        <aside class="sidebar @(State.IsSidebarOpen ? "open" : "")">
+            <NavMenu />
+            <div class="sidebar-footer">
+                <div class="nav-item" style="font-size:12px;color:var(--text-muted)">@State.UserName · @State.UserRole</div>
+                <button class="btn btn-outline btn-sm" style="width:100%;margin-top:8px" @onclick="LogoutAsync">@L["nav.logout"]</button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            @Body
+        </main>
+
+        <nav class="mobile-nav">
+            <NavLink href="/" Match="NavLinkMatch.All" class="mobile-nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+                <span class="mobile-nav-icon">📊</span>
+                <span>@L["nav.dashboard"]</span>
+            </NavLink>
+            <NavLink href="/cows" class="mobile-nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+                <span class="mobile-nav-icon">🐄</span>
+                <span>@L["nav.cows"]</span>
+            </NavLink>
+            <NavLink href="/milk" class="mobile-nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+                <span class="mobile-nav-icon">🥛</span>
+                <span>@L["nav.milk"]</span>
+            </NavLink>
+            <NavLink href="/feed-log" class="mobile-nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+                <span class="mobile-nav-icon">🍽️</span>
+                <span>@L["nav.feedlog"]</span>
+            </NavLink>
+            <NavLink href="/expenses" class="mobile-nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+                <span class="mobile-nav-icon">📋</span>
+                <span>@L["nav.expenses"]</span>
+            </NavLink>
+        </nav>
+    </div>
+}
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChange += StateHasChanged;
+
+        var isAuth = await Auth.IsAuthenticatedAsync();
+        if (!isAuth)
+        {
+            Nav.NavigateTo("/login");
+            return;
+        }
+
+        var user = await Auth.GetCurrentUserAsync();
+        if (user.HasValue)
+        {
+            State.SetAuthenticated(true,
+                user.Value.TryGetProperty("fullName", out var n) ? n.GetString() ?? "" : "",
+                user.Value.TryGetProperty("role", out var r) ? r.GetString() ?? "Worker" : "Worker",
+                user.Value.TryGetProperty("preferredLang", out var l) ? l.GetString() ?? "en" : "en");
+        }
+
+        // Start offline sync: register connectivity listeners, load an initial snapshot on first
+        // run, and flush any changes queued while offline. Non-fatal if it fails.
+        try { await Sync.InitializeAsync(); } catch { }
+    }
+
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    private async Task LogoutAsync()
+    {
+        await Auth.LogoutAsync();
+        State.SetAuthenticated(false);
+        Nav.NavigateTo("/login");
+    }
+}

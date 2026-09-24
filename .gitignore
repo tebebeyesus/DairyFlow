@@ -1,0 +1,32 @@
+# ── .NET build output ────────────────────────────────────────────
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+*.userprefs
+
+# ── Publish / packaging ──────────────────────────────────────────
+publish/
+*.nupkg
+
+# ── Secrets: real .env stays local, .env.example is committed ───
+.env
+*.pfx
+*.pem
+*.key
+
+# ── Local overrides of appsettings ──────────────────────────────
+appsettings.Development.local.json
+appsettings.Production.json
+
+# ── IDE / OS ────────────────────────────────────────────────────
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+*.swp
+
+# ── Claude Code local overrides ─────────────────────────────────
+.claude/settings.local.json

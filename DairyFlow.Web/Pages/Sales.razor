@@ -1,0 +1,172 @@
+@page "/sales"
+@inject HttpClient Http
+@inject AppState State
+@inject IOfflineStorageService Store
+@inject ISyncService Sync
+@implements IDisposable
+
+<PageTitle>@L["nav.sales"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">💰 @L["sales.title"]</div>
+    <button class="btn btn-primary" @onclick="() => showForm = true">@L["sales.add"]</button>
+</div>
+
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="() => showForm = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@L["sales.formtitle"]</h3>
+            <div class="form-group">
+                <label class="form-label">@L["lbl.date"]</label>
+                <input type="date" class="form-control" @bind="saleDate" />
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">@L["sales.liters"]</label>
+                    <input type="number" step="0.1" class="form-control" @bind="form.LitersSold" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">@L["sales.price"]</label>
+                    <input type="number" step="0.01" class="form-control" @bind="form.PricePerLiter" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["lbl.total"]: <strong>@((form.LitersSold * form.PricePerLiter).ToString("N2")) ETB</strong></label>
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["sales.buyer"]</label>
+                <input class="form-control" @bind="form.BuyerName" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["sales.payment"]</label>
+                <select class="form-control" @bind="form.PaymentStatus">
+                    <option value="Paid">@L["sales.paid"]</option>
+                    <option value="Pending">@L["sales.pending"]</option>
+                    <option value="Partial">@L["sales.partial"]</option>
+                </select>
+            </div>
+            @if (!string.IsNullOrEmpty(formError)) { <div class="alert alert-danger">@formError</div> }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="() => showForm = false">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading) { <div class="loading-spinner">@L["btn.saving"]</div> }
+else
+{
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["lbl.date"]</th><th>@L["sales.col.liters"]</th><th>@L["sales.col.pricel"]</th>
+                    <th>@L["lbl.total"]</th><th>@L["sales.col.buyer"]</th><th>@L["lbl.status"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in sales)
+                {
+                    var date   = s.TryGetProperty("saleDate",      out var d)  ? d.GetString()  : "";
+                    var liters = s.TryGetProperty("litersSold",     out var l)  ? l.GetDecimal() : 0;
+                    var price  = s.TryGetProperty("pricePerLiter",  out var p)  ? p.GetDecimal() : 0;
+                    var buyer  = s.TryGetProperty("buyerName",      out var b)  && b.ValueKind != System.Text.Json.JsonValueKind.Null ? b.GetString() : "-";
+                    var status = s.TryGetProperty("paymentStatus",  out var st) ? st.GetString() : "";
+                    <tr>
+                        <td>@date</td><td>@liters.ToString("F1")L</td><td>@price.ToString("F2")</td>
+                        <td><strong>@((liters * price).ToString("N0")) ETB</strong></td>
+                        <td>@buyer</td>
+                        <td><span class="badge badge-@status?.ToLower()">@TranslatePayment(status)</span></td>
+                    </tr>
+                }
+                @if (!sales.Any()) { <tr><td colspan="6" class="empty-row">@L["sales.empty"]</td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    List<System.Text.Json.JsonElement> sales = new();
+    bool loading, showForm, saving;
+    string formError = "";
+    DateTime saleDate = DateTime.Today;
+    SaleForm form = new();
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        loading = true;
+        try
+        {
+            sales = await Http.GetFromJsonAsync<List<System.Text.Json.JsonElement>>("/api/sales") ?? new();
+            foreach (var s in sales) await Store.SaveAsync("Sales", s);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — read cached sales, newest first.
+            sales = (await Store.GetAllAsync<System.Text.Json.JsonElement>("Sales"))
+                .OrderByDescending(s => s.TryGetProperty("saleDate", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String ? d.GetString() : "")
+                .ToList();
+        }
+        catch { }
+        finally { loading = false; }
+    }
+
+    async Task SaveAsync()
+    {
+        formError = "";
+        if (form.LitersSold <= 0 || form.PricePerLiter <= 0) { formError = L["sales.err.fields"]; return; }
+        saving = true;
+        var date = DateOnly.FromDateTime(saleDate);
+        var payload = new { saleDate = date, form.LitersSold, form.PricePerLiter, form.BuyerName, form.PaymentStatus };
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("/api/sales", payload);
+            saving = false;
+            if (resp.IsSuccessStatusCode) { showForm = false; form = new(); await OnInitializedAsync(); }
+            else { formError = L["err.savefail"]; }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — save locally and queue the sale.
+            var id = Guid.NewGuid();
+            var local = new
+            {
+                id = id.ToString(),
+                saleDate = date.ToString("yyyy-MM-dd"),
+                litersSold = form.LitersSold,
+                pricePerLiter = form.PricePerLiter,
+                buyerName = form.BuyerName,
+                paymentStatus = form.PaymentStatus
+            };
+            await Store.SaveAsync("Sales", local);
+            await Sync.QueueChangeAsync("Sale", "CREATE", id, local);
+            saving = false;
+            showForm = false;
+            form = new();
+            await OnInitializedAsync();
+        }
+    }
+
+    string TranslatePayment(string? s) => s switch
+    {
+        "Paid"    => L["sales.paid"],
+        "Pending" => L["sales.pending"],
+        "Partial" => L["sales.partial"],
+        _         => s ?? ""
+    };
+
+    class SaleForm
+    {
+        public decimal LitersSold { get; set; }
+        public decimal PricePerLiter { get; set; } = 70;
+        public string? BuyerName { get; set; }
+        public string PaymentStatus { get; set; } = "Paid";
+    }
+}

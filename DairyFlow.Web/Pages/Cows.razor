@@ -1,0 +1,495 @@
+@page "/cows"
+@inject HttpClient Http
+@inject AppState State
+@inject IOfflineStorageService Store
+@inject ISyncService Sync
+@implements IDisposable
+
+<PageTitle>@L["nav.cows"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">🐄 @L["cows.title"]</div>
+    @if (State.IsOwnerOrManager)
+    {
+        <button class="btn btn-primary" @onclick="OpenAddForm">@L["cows.add"]</button>
+    }
+</div>
+
+<div class="filter-bar">
+    <select class="form-control form-control-sm" @bind="typeFilter" @bind:after="LoadAsync">
+        <option value="">@L["cows.alltypes"]</option>
+        <option value="Cow">@L["type.cow"]</option>
+        <option value="Ox">@L["type.ox"]</option>
+    </select>
+    <select class="form-control form-control-sm" @bind="statusFilter" @bind:after="LoadAsync">
+        <option value="">@L["cows.allstatus"]</option>
+        <option value="Milking">@L["status.milking"]</option>
+        <option value="Dry">@L["status.dry"]</option>
+        <option value="Pregnant">@L["status.pregnant"]</option>
+        <option value="Sick">@L["status.sick"]</option>
+        <option value="Calf">@L["status.calf"]</option>
+    </select>
+</div>
+
+@* ── Add form ── *@
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="CloseAddForm">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@L["cows.addtitle"]</h3>
+            <div class="form-group">
+                <label class="form-label">@L["cows.tag"]</label>
+                <input class="form-control" @bind="form.TagNumber" placeholder="@L["cows.tagph"]" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["lbl.name"]</label>
+                <input class="form-control" @bind="form.Name" placeholder="@L["cows.nameph"]" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["cows.type"]</label>
+                <select class="form-control" @bind="form.AnimalType">
+                    <option value="Cow">@L["type.cow"]</option>
+                    <option value="Ox">@L["type.ox"]</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["cows.breed"]</label>
+                <select class="form-control" @bind="form.Breed">
+                    <option value="">— @L["cows.breedph"] —</option>
+                    @foreach (var grp in breedGroups)
+                    {
+                        <optgroup label="@L[$"breed.cat.{grp.Key.ToLower()}"]">
+                            @foreach (var b in grp)
+                            {
+                                <option value="@b.Name">@b.Name @(b.LocalName != null ? $"({b.LocalName})" : "")</option>
+                            }
+                        </optgroup>
+                    }
+                </select>
+            </div>
+            @if (form.AnimalType != "Ox")
+            {
+                <div class="form-group">
+                    <label class="form-label">@L["lbl.status"]</label>
+                    <select class="form-control" @bind="form.Status">
+                        <option value="Milking">@L["status.milking"]</option>
+                        <option value="Dry">@L["status.dry"]</option>
+                        <option value="Pregnant">@L["status.pregnant"]</option>
+                        <option value="Calf">@L["status.calf"]</option>
+                        <option value="Sick">@L["status.sick"]</option>
+                    </select>
+                </div>
+            }
+            <div class="form-group">
+                <label class="form-label">@L["cows.dob"]</label>
+                <input type="date" class="form-control" value="@form.DateOfBirth"
+                       @onchange="e => form.DateOfBirth = e.Value?.ToString()" />
+            </div>
+            @if (form.AnimalType != "Ox")
+            {
+                <div class="form-group">
+                    <label class="form-label">@L["cows.yield"]</label>
+                    <input type="number" class="form-control" @bind="form.ExpectedYieldL" />
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(formError))
+            {
+                <div class="alert alert-danger">@formError</div>
+            }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseAddForm">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveCowAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Edit form ── *@
+@if (editingId.HasValue)
+{
+    <div class="modal-overlay" @onclick="CloseEditForm">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@L["cows.edittitle"]</h3>
+            <div class="form-group">
+                <label class="form-label">@L["cows.tag"]</label>
+                <input class="form-control" @bind="editForm.TagNumber" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["lbl.name"]</label>
+                <input class="form-control" @bind="editForm.Name" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["cows.type"]</label>
+                <select class="form-control" @bind="editForm.AnimalType">
+                    <option value="Cow">@L["type.cow"]</option>
+                    <option value="Ox">@L["type.ox"]</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["cows.breed"]</label>
+                <select class="form-control" @bind="editForm.Breed">
+                    <option value="">— @L["cows.breedph"] —</option>
+                    @foreach (var grp in breedGroups)
+                    {
+                        <optgroup label="@L[$"breed.cat.{grp.Key.ToLower()}"]">
+                            @foreach (var b in grp)
+                            {
+                                <option value="@b.Name">@b.Name @(b.LocalName != null ? $"({b.LocalName})" : "")</option>
+                            }
+                        </optgroup>
+                    }
+                </select>
+            </div>
+            @if (editForm.AnimalType != "Ox")
+            {
+                <div class="form-group">
+                    <label class="form-label">@L["lbl.status"]</label>
+                    <select class="form-control" @bind="editForm.Status">
+                        <option value="Milking">@L["status.milking"]</option>
+                        <option value="Dry">@L["status.dry"]</option>
+                        <option value="Pregnant">@L["status.pregnant"]</option>
+                        <option value="Calf">@L["status.calf"]</option>
+                        <option value="Sick">@L["status.sick"]</option>
+                    </select>
+                </div>
+            }
+            <div class="form-group">
+                <label class="form-label">@L["cows.dob"]</label>
+                <input type="date" class="form-control" value="@editForm.DateOfBirth"
+                       @onchange="e => editForm.DateOfBirth = e.Value?.ToString()" />
+            </div>
+            @if (editForm.AnimalType != "Ox")
+            {
+                <div class="form-group">
+                    <label class="form-label">@L["cows.yield"]</label>
+                    <input type="number" class="form-control" @bind="editForm.ExpectedYieldL" />
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(editError))
+            {
+                <div class="alert alert-danger">@editError</div>
+            }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseEditForm">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="UpdateCowAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="loading-spinner">@L["btn.saving"]</div>
+}
+else
+{
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["cows.col.tag"]</th><th>@L["lbl.name"]</th><th>@L["cows.type"]</th><th>@L["cows.col.breed"]</th>
+                    <th>@L["lbl.status"]</th><th>@L["cows.col.yield"]</th><th>@L["cows.col.age"]</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var cow in cows)
+                {
+                    var cowId  = cow.TryGetProperty("id",            out var idEl)  ? idEl.GetString()   : null;
+                    var tag    = cow.TryGetProperty("tagNumber",     out var t)     ? t.GetString()      : "";
+                    var name   = cow.TryGetProperty("name",          out var n)     ? n.GetString()      : "";
+                    var atype  = cow.TryGetProperty("animalType",    out var at) && at.ValueKind != System.Text.Json.JsonValueKind.Null ? at.GetString() : "Cow";
+                    var breed  = cow.TryGetProperty("breed",         out var b)     ? b.GetString()      : "-";
+                    var status = cow.TryGetProperty("status",        out var s)     ? s.GetString()      : "";
+                    var yield  = cow.TryGetProperty("expectedYieldL",out var y)     ? y.GetDecimal()     : 0;
+                    var age    = cow.TryGetProperty("ageMonths",     out var a) && a.ValueKind != System.Text.Json.JsonValueKind.Null ? $"{a.GetInt32()}m" : "-";
+
+                    <tr>
+                        <td><strong>@tag</strong></td>
+                        <td>@(string.IsNullOrEmpty(name) ? "-" : name)</td>
+                        <td><span class="badge @(atype == "Ox" ? "badge-blue" : "badge-green")">@TranslateType(atype)</span></td>
+                        <td>@breed</td>
+                        <td><span class="badge badge-@status?.ToLower()">@TranslateStatus(status)</span></td>
+                        <td>@yield</td>
+                        <td>@age</td>
+                        <td>
+                            @if (cowId != null)
+                            {
+                                <button class="btn btn-sm btn-outline" @onclick="() => OpenEditForm(cow)">@L["btn.edit"]</button>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!cows.Any())
+                {
+                    <tr><td colspan="8" class="empty-row">@L["cows.empty"]</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="pagination">
+        <span>@L["lbl.total"]: @total</span>
+        <button class="btn btn-sm" @onclick="PrevPage" disabled="@(page == 1)">@L["btn.prev"]</button>
+        <span>@L["lbl.page"] @(page)</span>
+        <button class="btn btn-sm" @onclick="NextPage" disabled="@(cows.Count < pageSize)">@L["btn.next"]</button>
+    </div>
+}
+
+@code {
+    List<System.Text.Json.JsonElement> cows = new();
+    List<IGrouping<string, BreedItem>> breedGroups = new();
+    bool loading, showForm, saving;
+    string statusFilter = "", typeFilter = "", formError = "", editError = "";
+    int page = 1, pageSize = 20, total;
+
+    CowFormModel form = new();
+    CowFormModel editForm = new();
+    Guid? editingId;
+
+    async Task OpenAddForm()
+    {
+        form = new CowFormModel();
+        try
+        {
+            var result = await Http.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/settings/next-tag");
+            form.TagNumber = result.TryGetProperty("tag", out var t) ? t.GetString() ?? "" : "";
+        }
+        catch { }
+        showForm = true;
+    }
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var breedsTask = Http.GetFromJsonAsync<List<BreedItem>>("/api/breeds");
+        await LoadAsync();
+        var breeds = await breedsTask ?? new();
+        breedGroups = breeds.GroupBy(b => b.Category).OrderBy(g => g.Key switch
+        {
+            "Local"  => 0,
+            "Exotic" => 1,
+            "Cross"  => 2,
+            _        => 3
+        }).ToList();
+    }
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var url = $"/api/cows?page={page}&pageSize={pageSize}";
+            if (!string.IsNullOrEmpty(statusFilter)) url += $"&status={statusFilter}";
+            if (!string.IsNullOrEmpty(typeFilter)) url += $"&animalType={typeFilter}";
+            var result = await Http.GetFromJsonAsync<System.Text.Json.JsonElement>(url);
+            total = result.TryGetProperty("total", out var t) ? t.GetInt32() : 0;
+            cows  = result.TryGetProperty("data",  out var d) ? d.EnumerateArray().ToList() : new();
+
+            // Cache this page locally so the herd is viewable offline.
+            foreach (var c in cows) await Store.SaveAsync("Cows", c);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — serve the herd from the local snapshot, filtered + paged client-side.
+            await LoadFromCacheAsync();
+        }
+        catch { }
+        finally { loading = false; }
+    }
+
+    // Offline read path: read all cached cows, apply the same filters + paging as the server would.
+    async Task LoadFromCacheAsync()
+    {
+        var all = await Store.GetAllAsync<System.Text.Json.JsonElement>("Cows");
+        bool Active(System.Text.Json.JsonElement c) =>
+            !c.TryGetProperty("isActive", out var a) || a.ValueKind != System.Text.Json.JsonValueKind.False;
+        string Prop(System.Text.Json.JsonElement c, string k) =>
+            c.TryGetProperty(k, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() ?? "" : "";
+
+        var filtered = all
+            .Where(Active)
+            .Where(c => string.IsNullOrEmpty(statusFilter) || Prop(c, "status") == statusFilter)
+            .Where(c => string.IsNullOrEmpty(typeFilter)   || Prop(c, "animalType") == typeFilter)
+            .OrderBy(c => Prop(c, "tagNumber"))
+            .ToList();
+
+        total = filtered.Count;
+        cows  = filtered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+    }
+
+    async Task SaveCowAsync()
+    {
+        formError = "";
+        if (string.IsNullOrWhiteSpace(form.TagNumber)) { formError = L["cows.err.tag"]; return; }
+        saving = true;
+        var dob = ParseDate(form.DateOfBirth);
+        // Oxen aren't milked — keep them out of milking workflows.
+        var status = form.AnimalType == "Ox" ? "Dry" : form.Status;
+        var yieldL = form.AnimalType == "Ox" ? 0 : form.ExpectedYieldL;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("/api/cows", new
+            {
+                form.TagNumber,
+                form.Name,
+                form.AnimalType,
+                form.Breed,
+                Status = status,
+                ExpectedYieldL = yieldL,
+                DateOfBirth = dob
+            });
+            saving = false;
+            if (resp.IsSuccessStatusCode) { CloseAddForm(); await LoadAsync(); }
+            else { formError = L["cows.err.save"]; }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — persist locally and queue the create for when the connection returns.
+            await QueueCowAsync(Guid.NewGuid(), form, "CREATE");
+            saving = false;
+            CloseAddForm();
+            await LoadAsync();
+        }
+    }
+
+    // Write a cow to local storage optimistically and enqueue it for sync. The same object is
+    // both the local record (needs `id` for the IndexedDB key + table display) and the payload
+    // the server deserializes into CreateCowDto (it ignores the extra fields).
+    async Task QueueCowAsync(Guid id, CowFormModel f, string op)
+    {
+        var status = f.AnimalType == "Ox" ? "Dry" : f.Status;
+        var yieldL = f.AnimalType == "Ox" ? 0 : f.ExpectedYieldL;
+        var dob = ParseDate(f.DateOfBirth);
+        var fields = new
+        {
+            id = id.ToString(),
+            tagNumber = f.TagNumber,
+            name = f.Name,
+            animalType = f.AnimalType,
+            breed = f.Breed,
+            status,
+            expectedYieldL = yieldL,
+            dateOfBirth = dob?.ToString("yyyy-MM-dd"),
+            isActive = true
+        };
+        await Store.SaveAsync("Cows", fields);
+        await Sync.QueueChangeAsync("Cow", op, id, fields);
+    }
+
+    void OpenEditForm(System.Text.Json.JsonElement cow)
+    {
+        editingId = cow.TryGetProperty("id", out var idEl) && Guid.TryParse(idEl.GetString(), out var g) ? g : (Guid?)null;
+        if (editingId == null) return;
+
+        string? dobStr = null;
+        if (cow.TryGetProperty("dateOfBirth", out var dobEl) && dobEl.ValueKind != System.Text.Json.JsonValueKind.Null)
+        {
+            var raw = dobEl.GetString();
+            // Server returns ISO date — keep yyyy-MM-dd for the date input
+            if (raw != null && raw.Length >= 10)
+                dobStr = raw[..10];
+        }
+
+        editForm = new CowFormModel
+        {
+            TagNumber      = cow.TryGetProperty("tagNumber",      out var t) ? t.GetString() ?? "" : "",
+            Name           = cow.TryGetProperty("name",           out var n) ? n.GetString()       : null,
+            AnimalType     = cow.TryGetProperty("animalType",     out var at) && at.ValueKind != System.Text.Json.JsonValueKind.Null ? at.GetString() ?? "Cow" : "Cow",
+            Breed          = cow.TryGetProperty("breed",          out var b) ? b.GetString()       : null,
+            Status         = cow.TryGetProperty("status",         out var s) ? s.GetString() ?? "Milking" : "Milking",
+            ExpectedYieldL = cow.TryGetProperty("expectedYieldL", out var y) ? y.GetDecimal()      : 25,
+            DateOfBirth    = dobStr,
+        };
+        editError = "";
+    }
+
+    async Task UpdateCowAsync()
+    {
+        if (editingId == null) return;
+        editError = "";
+        saving = true;
+        var dob = ParseDate(editForm.DateOfBirth);
+        var status = editForm.AnimalType == "Ox" ? "Dry" : editForm.Status;
+        var yieldL = editForm.AnimalType == "Ox" ? 0 : editForm.ExpectedYieldL;
+        try
+        {
+            var resp = await Http.PutAsJsonAsync($"/api/cows/{editingId}", new
+            {
+                editForm.TagNumber,
+                editForm.Name,
+                editForm.AnimalType,
+                editForm.Breed,
+                Status = status,
+                ExpectedYieldL = yieldL,
+                DateOfBirth = dob
+            });
+            saving = false;
+            if (resp.IsSuccessStatusCode) { CloseEditForm(); await LoadAsync(); }
+            else { editError = L["cows.err.save"]; }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — persist the edit locally and queue it (the cow already has a server Id).
+            await QueueCowAsync(editingId.Value, editForm, "UPDATE");
+            saving = false;
+            CloseEditForm();
+            await LoadAsync();
+        }
+    }
+
+    // Parse "yyyy-MM-dd" string → DateOnly? for the API
+    static DateOnly? ParseDate(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return null;
+        return DateOnly.TryParseExact(s, "yyyy-MM-dd", out var d) ? d : (DateOnly?)null;
+    }
+
+    void CloseAddForm() { showForm = false; formError = ""; form = new(); }
+    void CloseEditForm() { editingId = null; editError = ""; }
+
+    string TranslateType(string? t) => t switch
+    {
+        "Cow" => L["type.cow"],
+        "Ox"  => L["type.ox"],
+        _     => t ?? ""
+    };
+
+    string TranslateStatus(string? s) => s switch
+    {
+        "Milking"  => L["status.milking"],
+        "Dry"      => L["status.dry"],
+        "Pregnant" => L["status.pregnant"],
+        "Sick"     => L["status.sick"],
+        "Calf"     => L["status.calf"],
+        _          => s ?? ""
+    };
+
+    async Task PrevPage() { if (page > 1) { page--; await LoadAsync(); } }
+    async Task NextPage() { page++; await LoadAsync(); }
+
+    class CowFormModel
+    {
+        public string TagNumber { get; set; } = "";
+        public string? Name { get; set; }
+        public string AnimalType { get; set; } = "Cow";
+        public string? Breed { get; set; }
+        public string Status { get; set; } = "Milking";
+        public decimal ExpectedYieldL { get; set; } = 25;
+        public string? DateOfBirth { get; set; }
+    }
+
+    class BreedItem
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public string? LocalName { get; set; }
+        public string Category { get; set; } = "";
+        public string? Origin { get; set; }
+    }
+}

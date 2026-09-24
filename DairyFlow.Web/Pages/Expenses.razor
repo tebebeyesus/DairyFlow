@@ -1,0 +1,337 @@
+@page "/expenses"
+@inject HttpClient Http
+@inject AppState State
+@inject IOfflineStorageService Store
+@inject ISyncService Sync
+@implements IDisposable
+@using System.Text.Json
+
+<PageTitle>@L["nav.expenses"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">📋 @L["exp.title"]</div>
+    <button class="btn btn-primary" @onclick="OpenAdd">@L["exp.add"]</button>
+</div>
+
+@* ── Cost summary: total operating cost this month, by source ── *@
+<div class="filter-bar">
+    <span class="feedlog-metric"><span class="feedlog-metric-label">@L["exp.total_cost"]</span><span class="feedlog-metric-value">@costTotal.ToString("N0")</span></span>
+    <span class="feedlog-metric"><span class="feedlog-metric-label">@L["exp.onetime"]</span><span class="feedlog-metric-value">@costOneTime.ToString("N0")</span></span>
+    <span class="feedlog-metric"><span class="feedlog-metric-label">@L["exp.recurring"]</span><span class="feedlog-metric-value">@costRecurring.ToString("N0")</span></span>
+    <span class="feedlog-metric"><span class="feedlog-metric-label">🌾 @L["exp.feed_auto"]</span><span class="feedlog-metric-value">@costFeed.ToString("N0")</span></span>
+    <span style="margin-left:auto;font-size:12px;color:var(--text-muted)">@L["exp.this_month"]</span>
+</div>
+
+@* ── Add/edit modal (type selector switches between one-time and recurring) ── *@
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="() => showForm = false">
+        <div class="modal" @onclick:stopPropagation style="max-width:560px">
+            <h3>@(editingId == null ? L["exp.addtitle"] : L["exp.edittitle"])</h3>
+
+            @if (editingId == null)
+            {
+                <div class="form-group">
+                    <label class="form-label">@L["exp.type"]</label>
+                    <div style="display:flex;gap:8px">
+                        <button type="button" class="btn @(form.IsRecurring ? "btn-outline" : "btn-secondary")" style="flex:1" @onclick="() => form.IsRecurring = false">@L["exp.t.onetime"]</button>
+                        <button type="button" class="btn @(form.IsRecurring ? "btn-secondary" : "btn-outline")" style="flex:1" @onclick="() => form.IsRecurring = true">@L["exp.t.recurring"]</button>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:6px">
+                        @(form.IsRecurring ? L["exp.hint.recurring"] : L["exp.hint.onetime"])
+                    </div>
+                </div>
+            }
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">@L["exp.category"]</label>
+                    <select class="form-control" @bind="form.Category">
+                        <option value="Feed">@L["exp.c.feed"]</option>
+                        <option value="Labor">@L["exp.c.labor"]</option>
+                        <option value="Veterinary">@L["exp.c.vet"]</option>
+                        <option value="Equipment">@L["exp.c.equipment"]</option>
+                        <option value="Utilities">@L["exp.c.utilities"]</option>
+                        <option value="Other">@L["exp.c.other"]</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">@L["exp.amount"]</label>
+                    <input type="number" step="0.01" class="form-control" @bind="form.Amount" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">@L["exp.description"]</label>
+                <input class="form-control" @bind="form.Description" />
+            </div>
+
+            @if (!form.IsRecurring)
+            {
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">@L["lbl.date"]</label>
+                        <input type="date" class="form-control" value="@form.Date" @onchange="e => form.Date = e.Value?.ToString() ?? form.Date" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">@L["exp.vendor"]</label>
+                        <input class="form-control" @bind="form.Vendor" />
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">@L["exp.frequency"]</label>
+                        <select class="form-control" @bind="form.Frequency">
+                            <option value="Daily">@L["exp.f.daily"]</option>
+                            <option value="Weekly">@L["exp.f.weekly"]</option>
+                            <option value="Monthly">@L["exp.f.monthly"]</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">@L["exp.vendor"]</label>
+                        <input class="form-control" @bind="form.Vendor" />
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">@L["acct.start"] *</label>
+                        <input type="date" class="form-control" value="@form.Date" @onchange="e => form.Date = e.Value?.ToString() ?? form.Date" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">@L["acct.end"] <span style="text-transform:none;font-weight:400">(@L["feed.optional"])</span></label>
+                        <input type="date" class="form-control" value="@form.EndDate" @onchange="e => form.EndDate = e.Value?.ToString()" />
+                    </div>
+                </div>
+                <div class="alert alert-info" style="font-size:12px">@L["exp.recurring_note"]</div>
+            }
+
+            @if (!string.IsNullOrEmpty(formError)) { <div class="alert alert-danger">@formError</div> }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="() => showForm = false">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">@(saving ? L["btn.saving"] : L["btn.save"])</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading) { <div class="loading-spinner">@L["btn.saving"]</div> }
+else
+{
+    @* ── Recurring expenses ── *@
+    <div class="dash-section" style="margin-top:8px">🔁 @L["exp.recurring_title"]</div>
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["exp.col.category"]</th><th>@L["exp.col.desc"]</th>
+                    <th>@L["exp.frequency"]</th><th>@L["exp.amount"]</th>
+                    <th>@L["exp.monthly_eq"]</th><th>@L["lbl.status"]</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in recurring)
+                {
+                    var rid    = Str(r, "id");
+                    var cat    = Str(r, "category");
+                    var desc   = Str(r, "description");
+                    var freq   = Str(r, "frequency");
+                    var amt    = Dec(r, "amount");
+                    var meq    = Dec(r, "monthlyEquivalent");
+                    var act    = r.TryGetProperty("isActive", out var ia) && ia.GetBoolean();
+                    <tr>
+                        <td><span class="badge badge-category">@TranslateCategory(cat)</span></td>
+                        <td>@desc</td>
+                        <td>@TranslateFreq(freq)</td>
+                        <td>@amt.ToString("N0") ETB</td>
+                        <td><strong>@meq.ToString("N0")</strong> /@L["exp.mo"]</td>
+                        <td>@if (act) { <span class="badge badge-green">@L["acct.s.active"]</span> } else { <span class="badge badge-gray">@L["acct.s.ended"]</span> }</td>
+                        <td><button class="btn btn-sm btn-outline" @onclick="() => DeleteRecurring(rid)">@L["btn.cancel"]</button></td>
+                    </tr>
+                }
+                @if (!recurring.Any()) { <tr><td colspan="7" class="empty-row">@L["exp.no_recurring"]</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    @* ── One-time expenses ── *@
+    <div class="dash-section" style="margin-top:20px">🧾 @L["exp.onetime_title"]</div>
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["lbl.date"]</th><th>@L["exp.col.category"]</th><th>@L["exp.col.desc"]</th>
+                    <th>@L["exp.col.amount"]</th><th>@L["exp.col.vendor"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var e in expenses)
+                {
+                    var date   = Str(e, "expenseDate");
+                    var cat    = Str(e, "category");
+                    var desc   = Str(e, "description");
+                    var amount = Dec(e, "amount");
+                    var vendor = Str(e, "vendor");
+                    <tr>
+                        <td>@date</td>
+                        <td><span class="badge badge-category">@TranslateCategory(cat)</span></td>
+                        <td>@desc</td>
+                        <td><strong>@amount.ToString("N0") ETB</strong></td>
+                        <td>@(string.IsNullOrEmpty(vendor) ? "-" : vendor)</td>
+                    </tr>
+                }
+                @if (!expenses.Any()) { <tr><td colspan="5" class="empty-row">@L["exp.empty"]</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    @* ── Feed consumption (auto-tracked) ── *@
+    <div class="dash-section" style="margin-top:20px">🌾 @L["exp.feed_title"]</div>
+    <div class="card card-sm">
+        <div class="dash-line">
+            <span class="lbl">@L["exp.feed_desc"]</span>
+            <span class="val">@costFeed.ToString("N0") ETB <span style="color:var(--text-muted);font-weight:400;font-size:12px">· @L["exp.this_month"]</span></span>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:8px">@L["exp.feed_hint"]</div>
+    </div>
+}
+
+@code {
+    List<JsonElement> expenses = new(), recurring = new();
+    bool loading, showForm, saving;
+    string formError = "";
+    string? editingId;
+    decimal costTotal, costOneTime, costRecurring, costFeed;
+    ExpenseForm form = new();
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var expTask = Http.GetFromJsonAsync<List<JsonElement>>("/api/expenses");
+            var recTask = Http.GetFromJsonAsync<List<JsonElement>>("/api/expenses/recurring");
+            var costTask = Http.GetFromJsonAsync<JsonElement>("/api/expenses/cost-summary");
+            await Task.WhenAll(expTask, recTask, costTask);
+            expenses  = await expTask ?? new();
+            recurring = await recTask ?? new();
+            var cs = await costTask;
+            costTotal     = Dec(cs, "total");
+            costOneTime   = Dec(cs, "oneTime");
+            costRecurring = Dec(cs, "recurring");
+            costFeed      = Dec(cs, "feed");
+            foreach (var e in expenses) await Store.SaveAsync("Expenses", e);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — show cached one-time expenses; recurring + feed/cost aggregates need the server.
+            expenses = (await Store.GetAllAsync<JsonElement>("Expenses"))
+                .OrderByDescending(e => Str(e, "expenseDate"))
+                .ToList();
+            recurring = new();
+            var thisMonth = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM");
+            costOneTime = expenses.Where(e => Str(e, "expenseDate").StartsWith(thisMonth)).Sum(e => Dec(e, "amount"));
+            costRecurring = 0; costFeed = 0; costTotal = costOneTime;
+        }
+        catch { }
+        finally { loading = false; }
+    }
+
+    void OpenAdd()
+    {
+        editingId = null;
+        form = new ExpenseForm { Date = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd") };
+        formError = "";
+        showForm = true;
+    }
+
+    async Task SaveAsync()
+    {
+        formError = "";
+        if (form.Amount <= 0 || string.IsNullOrWhiteSpace(form.Description)) { formError = L["exp.err.fields"]; return; }
+        if (!DateOnly.TryParseExact(form.Date, "yyyy-MM-dd", out var date)) { formError = L["feedlog.err.date"]; return; }
+
+        saving = true;
+        try
+        {
+            System.Net.Http.HttpResponseMessage resp;
+            if (form.IsRecurring)
+            {
+                DateOnly? end = DateOnly.TryParseExact(form.EndDate, "yyyy-MM-dd", out var ed) ? ed : null;
+                var payload = new { form.Category, form.Description, form.Amount, form.Frequency, startDate = date.ToString("yyyy-MM-dd"), endDate = end?.ToString("yyyy-MM-dd"), form.Vendor };
+                resp = await Http.PostAsJsonAsync("/api/expenses/recurring", payload);
+            }
+            else
+            {
+                var payload = new { expenseDate = date.ToString("yyyy-MM-dd"), form.Category, form.Description, form.Amount, form.Vendor };
+                resp = await Http.PostAsJsonAsync("/api/expenses", payload);
+            }
+            if (resp.IsSuccessStatusCode) { showForm = false; await LoadAsync(); }
+            else { formError = $"{L["err.savefail"]} ({(int)resp.StatusCode})"; }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline: one-time expenses queue locally; recurring expenses require a connection.
+            if (form.IsRecurring) { formError = L["err.savefail"]; saving = false; return; }
+            var id = Guid.NewGuid();
+            var local = new
+            {
+                id = id.ToString(),
+                expenseDate = date.ToString("yyyy-MM-dd"),
+                category = form.Category,
+                description = form.Description,
+                amount = form.Amount,
+                vendor = form.Vendor
+            };
+            await Store.SaveAsync("Expenses", local);
+            await Sync.QueueChangeAsync("Expense", "CREATE", id, local);
+            showForm = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { formError = $"{L["err.savefail"]}: {ex.Message}"; }
+        finally { saving = false; }
+    }
+
+    async Task DeleteRecurring(string id)
+    {
+        var resp = await Http.DeleteAsync($"/api/expenses/recurring/{id}");
+        if (resp.IsSuccessStatusCode) await LoadAsync();
+    }
+
+    static string Str(JsonElement e, string k)
+        => e.TryGetProperty(k, out var v) && v.ValueKind != JsonValueKind.Null ? (v.GetString() ?? "") : "";
+    static decimal Dec(JsonElement e, string k)
+        => e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0;
+
+    string TranslateCategory(string? c) => c switch
+    {
+        "Feed" => L["exp.c.feed"], "Labor" => L["exp.c.labor"], "Veterinary" => L["exp.c.vet"],
+        "Equipment" => L["exp.c.equipment"], "Utilities" => L["exp.c.utilities"], "Other" => L["exp.c.other"],
+        _ => c ?? ""
+    };
+
+    string TranslateFreq(string? f) => f switch
+    {
+        "Daily" => L["exp.f.daily"], "Weekly" => L["exp.f.weekly"], "Monthly" => L["exp.f.monthly"], _ => f ?? ""
+    };
+
+    class ExpenseForm
+    {
+        public bool IsRecurring { get; set; }
+        public string Category { get; set; } = "Labor";
+        public string Description { get; set; } = "";
+        public decimal Amount { get; set; }
+        public string Frequency { get; set; } = "Monthly";
+        public string Date { get; set; } = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+        public string? EndDate { get; set; }
+        public string? Vendor { get; set; }
+    }
+}

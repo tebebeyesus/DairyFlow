@@ -1,0 +1,124 @@
+@page "/login"
+@layout EmptyLayout
+@inject AuthService Auth
+@inject AppState State
+@inject NavigationManager Nav
+
+<div class="auth-page">
+    <div class="auth-card">
+        <div style="display:flex;justify-content:center;gap:6px;margin-bottom:20px;">
+            <button class="lang-btn @(State.Lang == "en" ? "active" : "")" @onclick='() => State.SetLang("en")'
+                    style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;">EN</button>
+            <button class="lang-btn @(State.Lang == "am" ? "active" : "")" @onclick='() => State.SetLang("am")'
+                    style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;">አማ</button>
+        </div>
+
+        <div class="auth-logo">
+            <div class="auth-logo-icon">🐄</div>
+            <div class="auth-title">@L["app.name"]</div>
+            <div class="auth-subtitle">@L["app.tagline"]</div>
+        </div>
+
+        @if (!showRegister)
+        {
+            <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;">@L["login.signin"]</h2>
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="alert alert-danger">@error</div>
+            }
+            <div class="form-group">
+                <label class="form-label">@L["login.email"]</label>
+                <input type="email" class="form-control" @bind="email" placeholder="@L["login.emailph"]" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["login.password"]</label>
+                <input type="password" class="form-control" @bind="password" placeholder="@L["login.passwordph"]" />
+            </div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center;" @onclick="LoginAsync" disabled="@loading">
+                @(loading ? L["login.signingin"] : L["login.signinbtn"])
+            </button>
+            <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-muted)">
+                @L["login.noaccount"] <button class="btn btn-outline btn-sm" @onclick="() => showRegister = true">@L["login.registerfarm"]</button>
+            </p>
+        }
+        else
+        {
+            <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;">@L["login.register"]</h2>
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="alert alert-danger">@error</div>
+            }
+            <div class="form-group">
+                <label class="form-label">@L["login.farmname"]</label>
+                <input type="text" class="form-control" @bind="farmName" placeholder="@L["login.farmnameph"]" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["login.ownername"]</label>
+                <input type="text" class="form-control" @bind="ownerName" placeholder="@L["login.ownernameph"]" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["login.email"]</label>
+                <input type="email" class="form-control" @bind="email" placeholder="@L["login.emailph"]" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["login.password"]</label>
+                <input type="password" class="form-control" @bind="password" placeholder="@L["login.passwordph2"]" />
+            </div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center;" @onclick="RegisterAsync" disabled="@loading">
+                @(loading ? L["login.creating"] : L["login.createbtn"])
+            </button>
+            <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-muted)">
+                @L["login.haveaccount"] <button class="btn btn-outline btn-sm" @onclick="() => showRegister = false">@L["login.signin"]</button>
+            </p>
+        }
+    </div>
+</div>
+
+@code {
+    string email = "", password = "", farmName = "", ownerName = "", error = "";
+    bool loading, showRegister;
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    private async Task LoginAsync()
+    {
+        error = "";
+        loading = true;
+        var ok = await Auth.LoginAsync(email, password);
+        loading = false;
+        if (ok)
+        {
+            var user = await Auth.GetCurrentUserAsync();
+            if (user.HasValue)
+                State.SetAuthenticated(true,
+                    user.Value.TryGetProperty("fullName", out var n) ? n.GetString() ?? "" : "",
+                    user.Value.TryGetProperty("role", out var r) ? r.GetString() ?? "Worker" : "Worker");
+            Nav.NavigateTo("/");
+        }
+        else { error = L["login.err.invalid"]; }
+    }
+
+    private async Task RegisterAsync()
+    {
+        error = "";
+        if (string.IsNullOrWhiteSpace(farmName) || string.IsNullOrWhiteSpace(ownerName))
+        {
+            error = L["login.err.fields"];
+            return;
+        }
+        loading = true;
+        var ok = await Auth.RegisterAsync(farmName, ownerName, email, password);
+        loading = false;
+        if (ok)
+        {
+            var user = await Auth.GetCurrentUserAsync();
+            if (user.HasValue)
+                State.SetAuthenticated(true,
+                    user.Value.TryGetProperty("fullName", out var n) ? n.GetString() ?? "" : "",
+                    "Owner");
+            Nav.NavigateTo("/");
+        }
+        else { error = L["login.err.regfail"]; }
+    }
+}

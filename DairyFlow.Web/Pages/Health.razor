@@ -1,0 +1,256 @@
+@page "/health"
+@inject HttpClient Http
+@inject AppState State
+@inject IOfflineStorageService Store
+@inject ISyncService Sync
+@implements IDisposable
+
+<PageTitle>@L["nav.health"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">🏥 @L["health.title"]</div>
+    <button class="btn btn-primary" @onclick="() => showForm = true">@L["health.add"]</button>
+</div>
+
+<div class="filter-bar">
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+        <input type="checkbox" @bind="unresolvedOnly" @bind:after="LoadAsync" />
+        @L["health.unresolvedonly"]
+    </label>
+</div>
+
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="() => showForm = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@L["health.formtitle"]</h3>
+            <div class="form-group">
+                <label class="form-label">@L["health.cow"]</label>
+                <select class="form-control" @bind="form.CowId">
+                    <option value="">@L["lbl.selectcow"]</option>
+                    @foreach (var c in cows)
+                    {
+                        var id  = c.TryGetProperty("id",        out var cid) ? cid.GetString() : "";
+                        var tag = c.TryGetProperty("tagNumber", out var t)   ? t.GetString()   : "";
+                        <option value="@id">@tag</option>
+                    }
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">@L["lbl.date"]</label>
+                    <input type="date" class="form-control" @bind="recordDate" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">@L["lbl.type"]</label>
+                    <select class="form-control" @bind="form.RecordType">
+                        <option value="Vaccination">@L["health.t.vaccination"]</option>
+                        <option value="Treatment">@L["health.t.treatment"]</option>
+                        <option value="Checkup">@L["health.t.checkup"]</option>
+                        <option value="Deworming">@L["health.t.deworming"]</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["health.condition"]</label>
+                <input class="form-control" @bind="form.Condition" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["health.treatment"]</label>
+                <input class="form-control" @bind="form.Treatment" />
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">@L["health.medication"]</label>
+                    <input class="form-control" @bind="form.Medication" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">@L["lbl.cost"]</label>
+                    <input type="number" class="form-control" @bind="form.Cost" />
+                </div>
+            </div>
+            @if (!string.IsNullOrEmpty(formError)) { <div class="alert alert-danger">@formError</div> }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="() => showForm = false">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading) { <div class="loading-spinner">@L["btn.saving"]</div> }
+else
+{
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["lbl.date"]</th><th>@L["health.cow"]</th><th>@L["health.col.type"]</th>
+                    <th>@L["health.col.condition"]</th><th>@L["health.col.treatment"]</th>
+                    <th>@L["health.col.cost"]</th><th>@L["lbl.status"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in records)
+                {
+                    var date     = r.TryGetProperty("recordDate", out var d)  ? d.GetString()  : "";
+                    var cowId2   = r.TryGetProperty("cowId", out var ci2) && ci2.ValueKind == System.Text.Json.JsonValueKind.String ? ci2.GetString() : null;
+                    var cow      = CowTag(cowId2, r);
+                    var type     = r.TryGetProperty("recordType", out var tp) ? tp.GetString() : "";
+                    var cond     = r.TryGetProperty("condition",  out var cn) && cn.ValueKind != System.Text.Json.JsonValueKind.Null ? cn.GetString() : "-";
+                    var trt      = r.TryGetProperty("treatment",  out var tr) && tr.ValueKind != System.Text.Json.JsonValueKind.Null ? tr.GetString() : "-";
+                    var cost     = r.TryGetProperty("cost",       out var co) ? co.GetDecimal() : 0;
+                    var resolved = r.TryGetProperty("isResolved", out var res) && res.GetBoolean();
+                    var id       = r.TryGetProperty("id",         out var rid) ? rid.GetString() : "";
+                    <tr>
+                        <td>@date</td><td>@cow</td><td>@TranslateType(type)</td>
+                        <td>@cond</td><td>@trt</td><td>@cost.ToString("N0")</td>
+                        <td>
+                            @if (!resolved)
+                            {
+                                <button class="btn btn-sm btn-success" @onclick="() => ResolveAsync(id!)">@L["btn.resolve"]</button>
+                            }
+                            else { <span class="badge badge-resolved">@L["health.resolved"]</span> }
+                        </td>
+                    </tr>
+                }
+                @if (!records.Any()) { <tr><td colspan="7" class="empty-row">@L["health.empty"]</td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    List<System.Text.Json.JsonElement> records = new(), cows = new();
+    bool loading, showForm, saving, unresolvedOnly;
+    string formError = "";
+    DateTime recordDate = DateTime.Today;
+    HealthForm form = new();
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    Dictionary<string, string> cowTags = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var cowsResult = await Http.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/cows?pageSize=200");
+            cows = cowsResult.TryGetProperty("data", out var d) ? d.EnumerateArray().ToList() : new();
+            foreach (var c in cows) await Store.SaveAsync("Cows", c);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            cows = await Store.GetAllAsync<System.Text.Json.JsonElement>("Cows");
+        }
+        catch { }
+
+        cowTags = new();
+        foreach (var c in cows)
+        {
+            var id = c.TryGetProperty("id", out var i) ? i.GetString() : null;
+            if (id != null) cowTags[id] = c.TryGetProperty("tagNumber", out var t) ? t.GetString() ?? "" : "";
+        }
+
+        await LoadAsync();
+    }
+
+    // Resolve a record's cow tag: prefer the cached cow list (offline-safe), else a nested cow object.
+    string CowTag(string? cowId, System.Text.Json.JsonElement record)
+    {
+        if (cowId != null && cowTags.TryGetValue(cowId, out var tag)) return tag;
+        if (record.TryGetProperty("cow", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.Object)
+            return c.TryGetProperty("tagNumber", out var t) ? t.GetString() ?? "-" : "-";
+        return "-";
+    }
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var url = $"/api/health?unresolvedOnly={unresolvedOnly}";
+            records = await Http.GetFromJsonAsync<List<System.Text.Json.JsonElement>>(url) ?? new();
+            foreach (var r in records) await Store.SaveAsync("HealthRecords", r);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — read cached records, apply the unresolved filter, newest first.
+            records = (await Store.GetAllAsync<System.Text.Json.JsonElement>("HealthRecords"))
+                .Where(r => !unresolvedOnly || !(r.TryGetProperty("isResolved", out var res) && res.ValueKind == System.Text.Json.JsonValueKind.True))
+                .OrderByDescending(r => r.TryGetProperty("recordDate", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String ? d.GetString() : "")
+                .ToList();
+        }
+        catch { }
+        finally { loading = false; }
+    }
+
+    async Task SaveAsync()
+    {
+        formError = "";
+        if (string.IsNullOrEmpty(form.CowId)) { formError = L["health.err.cow"]; return; }
+        saving = true;
+        var date = DateOnly.FromDateTime(recordDate);
+        var payload = new { cowId = Guid.Parse(form.CowId), recordDate = date, form.RecordType, form.Condition, form.Treatment, form.Medication, form.Cost };
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("/api/health", payload);
+            saving = false;
+            if (resp.IsSuccessStatusCode) { showForm = false; form = new(); await LoadAsync(); }
+            else { formError = L["err.savefail"]; }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — save locally and queue.
+            var id = Guid.NewGuid();
+            var local = new
+            {
+                id = id.ToString(),
+                cowId = form.CowId,
+                recordDate = date.ToString("yyyy-MM-dd"),
+                recordType = form.RecordType,
+                condition = form.Condition,
+                treatment = form.Treatment,
+                medication = form.Medication,
+                cost = form.Cost,
+                isResolved = false
+            };
+            await Store.SaveAsync("HealthRecords", local);
+            await Sync.QueueChangeAsync("HealthRecord", "CREATE", id, local);
+            saving = false;
+            showForm = false;
+            form = new();
+            await LoadAsync();
+        }
+    }
+
+    async Task ResolveAsync(string id)
+    {
+        // Resolve is a server-only action; ignore if offline (records still visible, resolve later online).
+        try { await Http.PatchAsync($"/api/health/{id}/resolve", null); }
+        catch { }
+        await LoadAsync();
+    }
+
+    string TranslateType(string? t) => t switch
+    {
+        "Vaccination" => L["health.t.vaccination"],
+        "Treatment"   => L["health.t.treatment"],
+        "Checkup"     => L["health.t.checkup"],
+        "Deworming"   => L["health.t.deworming"],
+        _             => t ?? ""
+    };
+
+    class HealthForm
+    {
+        public string CowId { get; set; } = "";
+        public string RecordType { get; set; } = "Vaccination";
+        public string? Condition { get; set; }
+        public string? Treatment { get; set; }
+        public string? Medication { get; set; }
+        public decimal Cost { get; set; }
+    }
+}

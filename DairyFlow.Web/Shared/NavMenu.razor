@@ -1,0 +1,55 @@
+@inject NavigationManager Nav
+@inject AppState State
+@implements IDisposable
+
+<nav>
+    <NavLink href="/" Match="NavLinkMatch.All" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">📊</span>
+        <span>@L["nav.dashboard"]</span>
+    </NavLink>
+    <NavLink href="/cows" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">🐄</span>
+        <span>@L["nav.cows"]</span>
+    </NavLink>
+    <NavLink href="/milk" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">🥛</span>
+        <span>@L["nav.milk"]</span>
+    </NavLink>
+    <NavLink href="/sales" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">💰</span>
+        <span>@L["nav.sales"]</span>
+    </NavLink>
+    <NavLink href="/accounts" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">💼</span>
+        <span>@L["nav.accounts"]</span>
+    </NavLink>
+    <NavLink href="/health" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">🏥</span>
+        <span>@L["nav.health"]</span>
+    </NavLink>
+    <NavLink href="/expenses" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">📋</span>
+        <span>@L["nav.expenses"]</span>
+    </NavLink>
+    <NavLink href="/feed" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">🌾</span>
+        <span>@L["nav.feed"]</span>
+    </NavLink>
+    <NavLink href="/feed-log" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">🍽️</span>
+        <span>@L["nav.feedlog"]</span>
+    </NavLink>
+    <NavLink href="/feed-templates" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">🧾</span>
+        <span>@L["nav.feedtemplates"]</span>
+    </NavLink>
+    <NavLink href="/settings" class="nav-item" ActiveClass="active" @onclick="State.CloseSidebar">
+        <span class="nav-icon">⚙️</span>
+        <span>@L["nav.settings"]</span>
+    </NavLink>
+</nav>
+
+@code {
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+}

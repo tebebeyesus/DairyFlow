@@ -1,0 +1,310 @@
+@page "/"
+@inject HttpClient Http
+@inject AppState State
+@implements IDisposable
+@using System.Text.Json
+@using System.Globalization
+
+<PageTitle>@L["nav.dashboard"] — DairyFlow</PageTitle>
+
+@if (loading)
+{
+    <div class="loading-spinner">@L["btn.saving"]</div>
+}
+else if (data.HasValue)
+{
+    var d          = data.Value;
+    var herd       = Sub(d, "herd");
+    var production = Sub(d, "production");
+    var wholesale  = Sub(d, "wholesale");
+    var costing    = Sub(d, "costing");
+    var finance    = Sub(d, "finance");
+    var health     = Sub(d, "health");
+
+    var todayL      = Dec(production, "todayLiters");
+    var yestL       = Dec(production, "yesterdayLiters");
+    var perCow      = Dec(production, "yieldPerCow");
+    var produced30  = Dec(production, "produced30Days");
+    var avgDaily    = Dec(production, "avgDailyLiters");
+    var milkUp      = todayL >= yestL;
+
+    var committed   = Dec(wholesale, "committedLitersPerDay");
+    var activeAcc   = Int(wholesale, "activeAccounts");
+    var dailyIncome = Dec(wholesale, "dailyIncome");
+    var wholeMonth  = Dec(wholesale, "revenue30Days");
+    var avgCov      = Dec(wholesale, "coveragePct");
+    var todayCov    = committed > 0 ? Math.Round(todayL / committed * 100, 0) : 0;
+    var shortfall   = committed - avgDaily;
+
+    var revenue     = Dec(finance, "revenue30Days");
+    var wholeRev    = Dec(finance, "wholesaleRevenue30Days");
+    var sales30     = Dec(finance, "salesRevenue30Days");
+    var expenses30  = Dec(finance, "expenses30Days");
+    var profit30    = Dec(finance, "profit30Days");
+    var margin      = Dec(finance, "marginPct");
+    var costPerL    = Dec(costing, "costPerLiter");
+    var sellPrice   = Dec(finance, "avgSellPricePerLiter");
+
+    <div class="dfx">
+    <div class="wrap">
+
+      <!-- HERD SNAPSHOT -->
+      <section class="grid ops" style="margin-bottom:18px">
+        <div class="card mini">
+          <div class="top">
+            <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10c0-1 1-2 2-2s2 .5 3 .5S10 8 11 8M21 10c0-1-1-2-2-2s-2 .5-3 .5"/><path d="M5 8c-1 3-1 7 2 9 2 1.5 4 1.5 5 1.5s3 0 5-1.5c3-2 3-6 2-9"/></svg></span>
+            <div class="val num">@Int(herd, "total")</div>
+          </div>
+          <div class="foot">@L["dash.totalcows"] · @L["dash.whole_herd"]</div>
+        </div>
+        <div class="card mini">
+          <div class="top">
+            <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8M9 2v4l-3 9a4 4 0 0 0 4 5h0a4 4 0 0 0 4-5l-3-9V2"/></svg></span>
+            <div class="val num">@Int(herd, "milking")</div>
+          </div>
+          <div class="foot">@L["dash.milking_now"]</div>
+        </div>
+        <div class="card mini">
+          <div class="top">
+            <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.5-9-9a5 5 0 0 1 9-2 5 5 0 0 1 9 2c-2 4.5-9 9-9 9z"/></svg></span>
+            <div class="val num">@Int(herd, "dry")</div>
+          </div>
+          <div class="foot">@L["status.dry"] · @Int(herd, "pregnant") @L["status.pregnant"]</div>
+        </div>
+        <div class="card mini">
+          <div class="top">
+            <span class="badge @(Int(health, "unresolvedIssues") > 0 ? "warn" : "ok")">
+              @if (Int(health, "unresolvedIssues") > 0)
+              {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
+              }
+              else
+              {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              }
+            </span>
+            <div class="val num">@Int(health, "unresolvedIssues")</div>
+          </div>
+          <div class="foot">@L["dash.healthissues"] · @Int(health, "pendingFollowUps") @L["dash.followups"]</div>
+        </div>
+      </section>
+
+      <!-- HERO: coverage + today/income -->
+      <section class="grid hero-row">
+        <div class="card coverage">
+          <div class="card-h">
+            <span class="eyebrow">@L["dash.cov_eyebrow"]</span>
+            <span class="eyebrow" style="color:@(todayL >= committed && committed > 0 ? "var(--brand)" : "var(--amber)")">
+              @(committed == 0 ? L["dash.no_commit_short"] : todayL >= committed ? L["dash.on_target"] : L["dash.below_commit"])
+            </span>
+          </div>
+          <div class="cov-top">
+            <div>
+              <span class="num cov-now">@todayL.ToString("0")<small>@L["dash.of"] @committed.ToString("0") L</small></span>
+            </div>
+            <div class="cov-target">
+              @L["dash.delivered_toward"]<br><b>@committed.ToString("F1") L / @L["dash.day"]</b>@L["dash.committed_l"]
+            </div>
+          </div>
+
+          <div class="tank">
+            <div class="tank-fill" style="width:@Inv(Math.Min(100,(double)todayCov))%">
+              <span class="tank-label in num">@todayCov.ToString("0")%</span>
+            </div>
+            <div class="tank-avg" style="left:@Inv(Math.Min(100,(double)avgCov))%"></div>
+          </div>
+          <div class="tank-scale"><span>0 L</span><span>@L["dash.day30_avg"] · @avgDaily.ToString("F1") L</span><span>@committed.ToString("0") L @L["dash.committed_l"]</span></div>
+
+          <div class="cov-meta">
+            <div class="m"><b class="num">@todayCov.ToString("0")%</b><span>@L["dash.today_cov"]</span></div>
+            <div class="m"><b class="num">@avgCov.ToString("0")%</b><span>@L["dash.avg_cov"]</span></div>
+            <div class="m"><b class="num">@activeAcc</b><span>@(activeAcc == 1 ? L["dash.active_account"] : L["dash.active_accounts"])</span></div>
+          </div>
+
+          @if (committed == 0)
+          {
+            <div class="alert good">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              <span>@L["dash.no_commitments"]</span>
+            </div>
+          }
+          else if (shortfall > 0)
+          {
+            <div class="alert">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
+              <span>@L["dash.short_pre"] <b>@shortfall.ToString("F1") L/@L["dash.day"]</b> @L["dash.short_mid"] @committed.ToString("0") L @L["dash.short_post"]</span>
+            </div>
+          }
+          else
+          {
+            <div class="alert good">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              <span>@L["dash.surplus_pre"] <b>@Math.Abs(shortfall).ToString("F1") L/@L["dash.day"]</b> @L["dash.surplus_post"] @committed.ToString("0") L.</span>
+            </div>
+          }
+        </div>
+
+        <div class="hero-side">
+          <div class="card stat">
+            <span class="eyebrow">@L["dash.todaymilk"]</span>
+            <div class="val num">@todayL.ToString("F1") <span class="unit">L</span></div>
+            <div class="foot">
+              <span class="trend @(milkUp ? "up" : "down")">@(milkUp ? "▲" : "▼") @L["dash.vs_yesterday"]</span>
+              <span class="sep">·</span> @perCow.ToString("F1") @L["dash.per_cow"]
+            </div>
+          </div>
+          <div class="card stat">
+            <span class="eyebrow">@L["dash.recurring"]</span>
+            <div class="val num">@dailyIncome.ToString("N0") <span class="unit">ETB</span></div>
+            <div class="foot">@activeAcc @(activeAcc == 1 ? L["dash.active_account"] : L["dash.active_accounts"]) <span class="sep">·</span> @committed.ToString("0") L/@L["dash.day_committed"]</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRIMARY STATS -->
+      <section class="grid stats">
+        <div class="card stat">
+          <span class="eyebrow">@L["dash.netprofit_e"]</span>
+          <div class="val num">@profit30.ToString("N0") <span class="unit">ETB</span></div>
+          <div class="foot"><span class="trend @(profit30 >= 0 ? "up" : "down")">@margin.ToString("0")% @L["dash.margin"]</span> @L["dash.over30"]</div>
+        </div>
+        <div class="card stat">
+          <span class="eyebrow">@L["dash.costliter_e"]</span>
+          <div class="val num">@costPerL.ToString("F2") <span class="unit">ETB</span></div>
+          <div class="foot">@L["dash.sellprice"] <span class="sep">·</span> @sellPrice.ToString("N2") ETB/L</div>
+        </div>
+        <div class="card stat">
+          <span class="eyebrow">@L["dash.produced_e"]</span>
+          <div class="val num">@produced30.ToString("0") <span class="unit">L</span></div>
+          <div class="foot">@avgDaily.ToString("F1") @L["dash.avg_per_day"]</div>
+        </div>
+        <div class="card stat">
+          <span class="eyebrow">@L["dash.wholesale_month"]</span>
+          <div class="val num">@wholeMonth.ToString("N0") <span class="unit">ETB</span></div>
+          <div class="foot">@L["dash.billed30"]</div>
+        </div>
+      </section>
+
+      <!-- PRODUCTION CHART -->
+      <section class="card" style="margin-bottom:18px">
+        <div class="card-h">
+          <span class="eyebrow">@L["dash.trend"]</span>
+          <span class="eyebrow" style="color:var(--ink-2)">@L["dash.l_per_day"]</span>
+        </div>
+        @{
+            var trend = production.TryGetProperty("trend", out var tr) && tr.ValueKind == JsonValueKind.Array
+                ? tr.EnumerateArray().ToList() : new List<JsonElement>();
+            var rawMax = trend.Any() ? trend.Max(t => t.TryGetProperty("liters", out var lv) ? lv.GetDecimal() : 0) : 0;
+            var niceMax = rawMax <= 0 ? 10m : Math.Ceiling(rawMax / 10m) * 10m;
+            const double PLOT = 150;
+        }
+        <div class="chart">
+          <div class="gridline" style="top:18px"><span class="gl-label">@niceMax.ToString("0") L</span></div>
+          @foreach (var t in trend)
+          {
+              var dt = t.TryGetProperty("date", out var dv) ? dv.GetString() : "";
+              var li = t.TryGetProperty("liters", out var lv2) ? lv2.GetDecimal() : 0;
+              var h  = li <= 0 ? 3.0 : Math.Round((double)(li / niceMax) * PLOT);
+              <div class="col">
+                  <div class="bar @(li <= 0 ? "zero" : "")" style="height:@Inv(h)px">
+                      @if (li > 0) { <span class="cap">@li.ToString("F1")</span> }
+                  </div>
+                  <span class="xlab @(li > 0 ? "hot" : "")">@dt</span>
+              </div>
+          }
+        </div>
+      </section>
+
+      <!-- SPLIT: ledger + cost breakdown -->
+      <section class="grid split">
+        <div class="card">
+          <div class="card-h"><span class="eyebrow">@L["dash.revenue_costs"]</span></div>
+          <table class="ledger">
+            <tr><td class="lbl">@L["dash.wholesale_income"]</td><td>@wholeRev.ToString("N0")</td></tr>
+            <tr class="rule"><td class="lbl">@L["dash.direct_sales"]</td><td>@sales30.ToString("N0")</td></tr>
+            <tr class="total"><td>@L["dash.total_revenue"]</td><td>@revenue.ToString("N0")</td></tr>
+            <tr class="rule"><td class="lbl">@L["dash.expenses"]</td><td class="neg">−@expenses30.ToString("N0")</td></tr>
+            <tr class="net"><td>@L["dash.net_profit"] <span class="eyebrow" style="margin-left:6px">@margin.ToString("0")% @L["dash.margin"]</span></td><td class="pop num">@profit30.ToString("N0") ETB</td></tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><span class="eyebrow">@L["dash.cost_breakdown"]</span></div>
+          @{
+              var cats = costing.TryGetProperty("byCategory", out var cb) && cb.ValueKind == JsonValueKind.Array
+                  ? cb.EnumerateArray().ToList() : new List<JsonElement>();
+              var totalCost = cats.Sum(c => c.TryGetProperty("amount", out var am) ? am.GetDecimal() : 0);
+          }
+          @if (!cats.Any() || totalCost <= 0)
+          {
+              <div class="cost-bar"></div>
+              <p class="note">@L["dash.no_expenses"]</p>
+          }
+          else
+          {
+              <div class="cost-bar">
+                  @for (int i = 0; i < cats.Count; i++)
+                  {
+                      var amt = cats[i].TryGetProperty("amount", out var av) ? av.GetDecimal() : 0;
+                      var cat = cats[i].TryGetProperty("category", out var cn) ? cn.GetString() : "";
+                      var w = (double)(amt / totalCost) * 100;
+                      <div class="cost-seg s@(i % 5)" style="width:@Inv(w)%">@(w >= 16 ? $"{TranslateCat(cat)} · {w:0}%" : "")</div>
+                  }
+              </div>
+              @for (int i = 0; i < cats.Count; i++)
+              {
+                  var amt = cats[i].TryGetProperty("amount", out var av) ? av.GetDecimal() : 0;
+                  var cat = cats[i].TryGetProperty("category", out var cn) ? cn.GetString() : "";
+                  var isFeed = cat == "Feed";
+                  <div class="cost-row">
+                      <span class="k"><span class="swatch s@(i % 5)"></span>@(isFeed ? L["dash.feed_consumed"] : TranslateCat(cat))</span>
+                      <span class="v">@(isFeed ? $"{Dec(costing, "feedKg30Days"):N0} kg · " : "")@amt.ToString("N0") ETB</span>
+                  </div>
+              }
+              @if (cats.Count == 1)
+              {
+                  <p class="note">@L["dash.cost_note"]</p>
+              }
+          }
+        </div>
+      </section>
+
+    </div>
+    </div>
+}
+else if (!string.IsNullOrEmpty(errorMsg))
+{
+    <div class="alert alert-danger">@errorMsg</div>
+}
+
+@code {
+    bool loading = true;
+    JsonElement? data;
+    string errorMsg = "";
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { data = await Http.GetFromJsonAsync<JsonElement>("/api/dashboard"); }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { loading = false; }
+    }
+
+    static string Inv(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    static JsonElement Sub(JsonElement el, string prop) =>
+        el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) ? v : default;
+    static int Int(JsonElement el, string prop) =>
+        el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+    static decimal Dec(JsonElement el, string prop) =>
+        el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDecimal() : 0;
+
+    string TranslateCat(string? c) => c switch
+    {
+        "Feed" => L["exp.c.feed"], "Labor" => L["exp.c.labor"], "Veterinary" => L["exp.c.vet"],
+        "Equipment" => L["exp.c.equipment"], "Utilities" => L["exp.c.utilities"], "Other" => L["exp.c.other"],
+        _ => c ?? ""
+    };
+}

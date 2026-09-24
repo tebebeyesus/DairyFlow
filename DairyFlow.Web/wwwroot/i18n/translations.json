@@ -1,0 +1,454 @@
+{
+  "en": {
+    "app": {
+      "name": "DairyFlow",
+      "tagline": "Farm Management System",
+      "offline": "You are offline — changes saved locally",
+      "syncing": "Syncing...",
+      "synced": "All changes synced",
+      "sync_pending": "{count} changes pending sync"
+    },
+    "nav": {
+      "dashboard": "Dashboard",
+      "cows": "Cows",
+      "milk": "Milk",
+      "health": "Health",
+      "sales": "Sales",
+      "expenses": "Expenses",
+      "reports": "Reports",
+      "settings": "Settings",
+      "logout": "Logout"
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "total_cows": "Total Cows",
+      "milking_today": "Milking Today",
+      "todays_milk": "Today's Milk",
+      "todays_revenue": "Today's Revenue",
+      "weekly_production": "Weekly Production",
+      "monthly_profit": "Monthly Profit",
+      "alerts": "Alerts",
+      "herd_status": "Herd Status"
+    },
+    "cows": {
+      "title": "Herd Management",
+      "add_cow": "Add New Cow",
+      "tag_number": "Tag Number",
+      "name": "Name",
+      "breed": "Breed",
+      "status": "Status",
+      "expected_yield": "Expected Daily Yield (L)",
+      "purchase_price": "Purchase Price (ETB)",
+      "date_of_birth": "Date of Birth",
+      "purchase_date": "Purchase Date",
+      "notes": "Notes",
+      "statuses": {
+        "milking": "Milking",
+        "dry": "Dry",
+        "pregnant": "Pregnant",
+        "calf": "Calf",
+        "sick": "Sick",
+        "sold": "Sold"
+      }
+    },
+    "milk": {
+      "title": "Milk Records",
+      "log_entry": "Log Entry",
+      "history": "History",
+      "date": "Date",
+      "cow": "Cow",
+      "am_session": "Morning Session (L)",
+      "pm_session": "Evening Session (L)",
+      "total_liters": "Total Liters",
+      "quality": "Quality",
+      "save_record": "Save Record"
+    },
+    "sales": {
+      "title": "Sales",
+      "new_sale": "New Sale",
+      "sale_date": "Sale Date",
+      "liters_sold": "Liters Sold",
+      "price_per_liter": "Price per Liter (ETB)",
+      "buyer_name": "Buyer Name",
+      "buyer_phone": "Buyer Phone",
+      "payment_status": "Payment Status",
+      "total_amount": "Total Amount",
+      "statuses": {
+        "paid": "Paid",
+        "pending": "Pending",
+        "partial": "Partial"
+      }
+    },
+    "health": {
+      "title": "Health Records",
+      "add_record": "Add Health Record",
+      "record_date": "Date",
+      "record_type": "Type",
+      "condition": "Condition",
+      "treatment": "Treatment",
+      "medication": "Medication",
+      "vet_name": "Veterinarian",
+      "cost": "Cost (ETB)",
+      "follow_up": "Follow-up Date",
+      "resolved": "Resolved",
+      "types": {
+        "vaccination": "Vaccination",
+        "treatment": "Treatment",
+        "checkup": "Checkup",
+        "deworming": "Deworming"
+      }
+    },
+    "expenses": {
+      "title": "Expenses",
+      "add_expense": "Add Expense",
+      "date": "Date",
+      "category": "Category",
+      "description": "Description",
+      "amount": "Amount (ETB)",
+      "vendor": "Vendor",
+      "categories": {
+        "feed": "Feed",
+        "labor": "Labor",
+        "veterinary": "Veterinary",
+        "equipment": "Equipment",
+        "utilities": "Utilities",
+        "other": "Other"
+      }
+    },
+    "profitability": {
+      "title": "Profitability Calculator",
+      "cows": "Number of Cows",
+      "liters_per_cow": "Liters/Cow/Day",
+      "milk_price": "Milk Price (ETB/L)",
+      "feed_pct": "Feed Cost (% of Revenue)",
+      "employees": "Employees",
+      "salary": "Salary/Employee (ETB)",
+      "tax_rate": "Tax Rate (%)",
+      "investment": "Initial Investment (ETB)",
+      "exchange_rate": "USD Exchange Rate",
+      "daily_milk": "Daily Milk Production",
+      "monthly_revenue": "Monthly Revenue",
+      "feed_cost": "Feed Cost",
+      "labor_cost": "Labor Cost",
+      "total_costs": "Total Costs",
+      "pretax_profit": "Pre-Tax Profit",
+      "tax": "Tax",
+      "monthly_profit": "Monthly Profit (After Tax)",
+      "monthly_profit_usd": "Monthly Profit (USD)",
+      "yearly_profit": "Yearly Profit",
+      "break_even": "Break-Even",
+      "roi": "ROI (Annual)"
+    },
+    "reports": {
+      "title": "Reports",
+      "milk_report": "Milk Production Report",
+      "financial_report": "Financial Report",
+      "herd_report": "Herd Report",
+      "health_report": "Health Report",
+      "date_from": "From",
+      "date_to": "To",
+      "generate": "Generate Report",
+      "export_csv": "Export CSV",
+      "export_pdf": "Export PDF"
+    },
+    "settings": {
+      "title": "Settings",
+      "farm_info": "Farm Information",
+      "farm_name": "Farm Name",
+      "owner_name": "Owner Name",
+      "phone": "Phone",
+      "email": "Email",
+      "region": "Region",
+      "language": "Language",
+      "currency": "Currency",
+      "exchange_rate": "USD Exchange Rate",
+      "users": "User Management",
+      "add_user": "Add User",
+      "sync_settings": "Sync Settings",
+      "clear_cache": "Clear Local Cache",
+      "save": "Save Changes"
+    },
+    "common": {
+      "save": "Save",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "edit": "Edit",
+      "search": "Search",
+      "loading": "Loading...",
+      "no_data": "No data available",
+      "confirm_delete": "Are you sure you want to delete this?",
+      "success": "Saved successfully",
+      "error": "An error occurred",
+      "required": "This field is required",
+      "etb": "ETB",
+      "usd": "USD",
+      "liters": "liters",
+      "per_day": "per day",
+      "per_month": "per month",
+      "per_year": "per year"
+    }
+  },
+
+  "am": {
+    "app": {
+      "name": "ዴይሪፍሎው",
+      "tagline": "የእርሻ አስተዳደር ሥርዓት",
+      "offline": "ኢንተርኔት የለም — ለውጦች ተቀምጠዋል",
+      "syncing": "በማመሳሰል ላይ...",
+      "synced": "ሁሉም ለውጦች ተመሳስለዋል",
+      "sync_pending": "{count} ለውጦች ለማመሳሰል ተዘጋጅተዋል"
+    },
+    "nav": {
+      "dashboard": "ዋና ገጽ",
+      "cows": "ላሞች",
+      "milk": "ወተት",
+      "health": "ጤና",
+      "sales": "ሽያጭ",
+      "expenses": "ወጪ",
+      "reports": "ሪፖርቶች",
+      "settings": "ቅንብሮች",
+      "logout": "ውጣ"
+    },
+    "dashboard": {
+      "title": "ዋና ገጽ",
+      "total_cows": "ጠቅላላ ላሞች",
+      "milking_today": "ዛሬ ወተት ሰጪ",
+      "todays_milk": "የዛሬ ወተት",
+      "todays_revenue": "የዛሬ ገቢ",
+      "weekly_production": "ሳምናዊ ምርት",
+      "monthly_profit": "ወርሃዊ ትርፍ",
+      "alerts": "ማስጠንቀቂያዎች",
+      "herd_status": "የከብቶች ሁኔታ"
+    },
+    "cows": {
+      "title": "ከብት አስተዳዳሪ",
+      "add_cow": "አዲስ ላም ጨምር",
+      "tag_number": "መለያ ቁጥር",
+      "name": "ስም",
+      "breed": "ዝርያ",
+      "status": "ሁኔታ",
+      "expected_yield": "የሚጠበቅ ዕለታዊ ምርት (ሊ)",
+      "purchase_price": "የግዢ ዋጋ (ብር)",
+      "date_of_birth": "የልደት ቀን",
+      "purchase_date": "የተገዛበት ቀን",
+      "notes": "ማስታወሻ",
+      "statuses": {
+        "milking": "ወተት ሰጪ",
+        "dry": "ደረቅ",
+        "pregnant": "ነፍሰ ጡር",
+        "calf": "ጥጃ",
+        "sick": "ታማሚ",
+        "sold": "ተሸጧ"
+      }
+    },
+    "milk": {
+      "title": "የወተት ሪኮርድ",
+      "log_entry": "ምዝገባ",
+      "history": "ታሪክ",
+      "date": "ቀን",
+      "cow": "ላም",
+      "am_session": "የጥዋት ምርት (ሊ)",
+      "pm_session": "የምሽት ምርት (ሊ)",
+      "total_liters": "ጠቅላላ ሊትር",
+      "quality": "ጥራት",
+      "save_record": "አስቀምጥ"
+    },
+    "sales": {
+      "title": "ሽያጭ",
+      "new_sale": "አዲስ ሽያጭ",
+      "sale_date": "የሽያጭ ቀን",
+      "liters_sold": "የተሸጠ ሊትር",
+      "price_per_liter": "ዋጋ ፡ ሊትር (ብር)",
+      "buyer_name": "የገዢ ስም",
+      "buyer_phone": "ስልክ",
+      "payment_status": "የክፍያ ሁኔታ",
+      "total_amount": "ጠቅላላ",
+      "statuses": {
+        "paid": "ተከፍሏል",
+        "pending": "በመጠባበቅ",
+        "partial": "ከፊል"
+      }
+    },
+    "health": {
+      "title": "የጤና ሪኮርድ",
+      "add_record": "የጤና ሪኮርድ ጨምር",
+      "record_date": "ቀን",
+      "record_type": "አይነት",
+      "condition": "ሁኔታ",
+      "treatment": "ህክምና",
+      "medication": "መድሃኒት",
+      "vet_name": "獣医ሀኪም",
+      "cost": "ወጪ (ብር)",
+      "follow_up": "ክትትል ቀን",
+      "resolved": "ተፈቷል",
+      "types": {
+        "vaccination": "ክትባት",
+        "treatment": "ህክምና",
+        "checkup": "ምርመራ",
+        "deworming": "ዝርፊያ ማጽዳት"
+      }
+    },
+    "expenses": {
+      "title": "ወጪዎች",
+      "add_expense": "ወጪ ጨምር",
+      "date": "ቀን",
+      "category": "ምድብ",
+      "description": "ዝርዝር",
+      "amount": "መጠን (ብር)",
+      "vendor": "አቅራቢ",
+      "categories": {
+        "feed": "መኖ",
+        "labor": "ጉልበት",
+        "veterinary": "獣医ህክምና",
+        "equipment": "መሳሪያ",
+        "utilities": "አገልግሎት",
+        "other": "ሌላ"
+      }
+    },
+    "profitability": {
+      "title": "ትርፋማነት ሂሳብ",
+      "cows": "የላሞች ቁጥር",
+      "liters_per_cow": "ሊትር/ላም/ቀን",
+      "milk_price": "የወተት ዋጋ (ብር/ሊ)",
+      "feed_pct": "የምግብ ወጪ (%)",
+      "employees": "ሰራተኞች",
+      "salary": "ደሞዝ (ብር)",
+      "tax_rate": "ታክስ (%)",
+      "investment": "መነሻ ኢንቨስትመንት (ብር)",
+      "exchange_rate": "የዶላር ምንዛሪ",
+      "daily_milk": "ዕለታዊ ወተት",
+      "monthly_revenue": "ወርሃዊ ገቢ",
+      "feed_cost": "የምግብ ወጪ",
+      "labor_cost": "የጉልበት ወጪ",
+      "total_costs": "ጠቅላላ ወጪ",
+      "pretax_profit": "ከታክስ በፊት ትርፍ",
+      "tax": "ታክስ",
+      "monthly_profit": "ወርሃዊ ትርፍ",
+      "monthly_profit_usd": "ወርሃዊ ትርፍ (ዶላር)",
+      "yearly_profit": "ዓመታዊ ትርፍ",
+      "break_even": "ወጪ-ትርፍ ሚዛን",
+      "roi": "ዓመታዊ ትርፍ ምጣኔ"
+    },
+    "settings": {
+      "title": "ቅንብሮች",
+      "farm_info": "የእርሻ መረጃ",
+      "farm_name": "የእርሻ ስም",
+      "owner_name": "የባለቤት ስም",
+      "language": "ቋንቋ",
+      "save": "አስቀምጥ"
+    },
+    "common": {
+      "save": "አስቀምጥ",
+      "cancel": "ሰርዝ",
+      "delete": "ሰርዝ",
+      "edit": "አስተካክል",
+      "search": "ፈልግ",
+      "loading": "በመጫን ላይ...",
+      "no_data": "ምንም መረጃ የለም",
+      "success": "በተሳካ ሁኔታ ተቀምጧል",
+      "error": "ስህተት ተፈጥሯል",
+      "etb": "ብር",
+      "usd": "ዶላር",
+      "liters": "ሊትር"
+    }
+  },
+
+  "om": {
+    "app": {
+      "name": "DairyFlow",
+      "tagline": "Sirna Bulchiinsa Qonnaa",
+      "offline": "Intarneetii hin jiru — jijjiiramni kuufame",
+      "syncing": "Walsimsiisuun...",
+      "synced": "Jijjiiramni hundi walsimsifame",
+      "sync_pending": "Jijjiirama {count} walsimsiifamuu eegaa jira"
+    },
+    "nav": {
+      "dashboard": "Fuula Jalqabaa",
+      "cows": "Sa'oonni",
+      "milk": "Aannani",
+      "health": "Fayyaa",
+      "sales": "Gurgurtaa",
+      "expenses": "Baasii",
+      "reports": "Gabaasota",
+      "settings": "Qindaa'inoota",
+      "logout": "Ba'i"
+    },
+    "dashboard": {
+      "title": "Fuula Jalqabaa",
+      "total_cows": "Sa'oota Waliigalaa",
+      "milking_today": "Har'a Harma Dhaabduu",
+      "todays_milk": "Aannani Har'aa",
+      "todays_revenue": "Galii Har'aa",
+      "weekly_production": "Oomisha Torbee",
+      "monthly_profit": "Fayidaa Ji'aa",
+      "alerts": "Akeekkachiisota",
+      "herd_status": "Haala Sa'oota"
+    },
+    "cows": {
+      "title": "Bulchiinsa Meeshaa",
+      "add_cow": "Sa'a Haaraa Dabali",
+      "tag_number": "Lakkoofsa Mallattoo",
+      "name": "Maqaa",
+      "breed": "Gosaa",
+      "status": "Haala",
+      "expected_yield": "Oomisha Guyyaa Eegamu (L)",
+      "purchase_price": "Gatii Bitame (ETB)",
+      "notes": "Yaadannoo",
+      "statuses": {
+        "milking": "Harma Dhaabduu",
+        "dry": "Goggogduu",
+        "pregnant": "Ulfaa'aa",
+        "calf": "Dandeessa",
+        "sick": "Dhukkubsattuu",
+        "sold": "Gurgurame"
+      }
+    },
+    "milk": {
+      "title": "Galmeewwan Aannani",
+      "log_entry": "Galmeessi",
+      "history": "Seenaa",
+      "date": "Guyyaa",
+      "cow": "Sa'a",
+      "am_session": "Marii Ganama (L)",
+      "pm_session": "Marii Galgalaa (L)",
+      "total_liters": "Liitira Waliigalaa",
+      "save_record": "Kuusi"
+    },
+    "sales": {
+      "title": "Gurgurtaa",
+      "new_sale": "Gurgurtaa Haaraa",
+      "sale_date": "Guyyaa Gurgurtaa",
+      "liters_sold": "Liitira Gurgurame",
+      "price_per_liter": "Gatii Liitira (ETB)",
+      "buyer_name": "Maqaa Bitaa",
+      "total_amount": "Waliigala",
+      "statuses": {
+        "paid": "Kaffalame",
+        "pending": "Eeggachaa",
+        "partial": "Kutaa"
+      }
+    },
+    "health": {
+      "title": "Galmeewwan Fayyaa",
+      "add_record": "Galmeessa Fayyaa Dabali",
+      "record_type": "Gosa",
+      "condition": "Haala",
+      "treatment": "Yaala",
+      "vet_name": "Ogeessa Beeyladaa",
+      "cost": "Baasii (ETB)"
+    },
+    "common": {
+      "save": "Kuusi",
+      "cancel": "Haquu",
+      "delete": "Haquu",
+      "edit": "Gulaali",
+      "search": "Barbaadi",
+      "loading": "Fe'aa jira...",
+      "no_data": "Odeeffannoo hin jiru",
+      "success": "Milkaa'inaan kuufame",
+      "error": "Dogoggorri uumame",
+      "etb": "ETB",
+      "liters": "Liitira"
+    }
+  }
+}

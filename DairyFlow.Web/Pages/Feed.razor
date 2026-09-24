@@ -1,0 +1,261 @@
+@page "/feed"
+@inject HttpClient Http
+@inject AppState State
+@implements IDisposable
+
+<PageTitle>@L["nav.feed"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">🌾 @L["feed.title"]</div>
+    @if (State.IsOwnerOrManager)
+    {
+        <button class="btn btn-primary" @onclick="() => showForm = true">@L["feed.add"]</button>
+    }
+</div>
+
+@* ── Add / Edit form ── *@
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="CloseForm">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@(editingId.HasValue ? L["feed.edittitle"] : L["feed.addtitle"])</h3>
+            <div class="form-group">
+                <label class="form-label">@L["feed.name"]</label>
+                <input class="form-control" @bind="form.Name" placeholder="@L["feed.nameph"]" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["feed.category"]</label>
+                <select class="form-control" @bind="form.Category">
+                    <option value="Roughage">@L["feed.cat.roughage"]</option>
+                    <option value="Concentrate">@L["feed.cat.concentrate"]</option>
+                    <option value="Supplement">@L["feed.cat.supplement"]</option>
+                    <option value="Mineral">@L["feed.cat.mineral"]</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["feed.unit"]</label>
+                <select class="form-control" @bind="form.Unit">
+                    <option value="kg">kg</option>
+                    <option value="bale">bale</option>
+                    <option value="bag">bag</option>
+                    <option value="liter">liter</option>
+                </select>
+            </div>
+            @if (!editingId.HasValue)
+            {
+                <div class="form-group">
+                    <label class="form-label">@L["feed.initial_stock"]</label>
+                    <input type="number" step="0.1" class="form-control" @bind="form.InitialStock" />
+                </div>
+            }
+            <div class="form-group">
+                <label class="form-label">@L["feed.cost_per_unit"]</label>
+                <input type="number" step="0.01" class="form-control" @bind="form.CostPerUnit" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["lbl.notes"]</label>
+                <input class="form-control" @bind="form.Notes" />
+            </div>
+            @if (!string.IsNullOrEmpty(formError))
+            {
+                <div class="alert alert-danger">@formError</div>
+            }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseForm">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Restock form ── *@
+@if (restockingId.HasValue)
+{
+    <div class="modal-overlay" @onclick="CloseRestock">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@L["feed.restock"] — @restockingName</h3>
+            <div class="form-group">
+                <label class="form-label">@L["feed.restock_qty"]</label>
+                <input type="number" step="0.1" class="form-control" @bind="restockQty" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">@L["feed.cost_per_unit"] (@L["feed.optional"])</label>
+                <input type="number" step="0.01" class="form-control" @bind="restockCost" />
+            </div>
+            @if (!string.IsNullOrEmpty(formError))
+            {
+                <div class="alert alert-danger">@formError</div>
+            }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseRestock">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="DoRestockAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["feed.restock"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="loading-spinner">@L["btn.saving"]</div>
+}
+else
+{
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["feed.name"]</th>
+                    <th>@L["feed.category"]</th>
+                    <th>@L["feed.stock"]</th>
+                    <th>@L["feed.cost_per_unit"]</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var f in feeds)
+                {
+                    var fid      = f.TryGetProperty("id",           out var i) ? i.GetString() : null;
+                    var fname    = f.TryGetProperty("name",         out var n) ? n.GetString() : "";
+                    var fcat     = f.TryGetProperty("category",     out var c) ? c.GetString() : "";
+                    var funit    = f.TryGetProperty("unit",         out var u) ? u.GetString() : "kg";
+                    var fstock   = f.TryGetProperty("currentStock", out var s) ? s.GetDecimal() : 0;
+                    var fcost    = f.TryGetProperty("costPerUnit",  out var p) ? p.GetDecimal() : 0;
+                    var fnotes   = f.TryGetProperty("notes",        out var nt) ? nt.GetString() : null;
+
+                    <tr>
+                        <td><strong>@fname</strong>@if (!string.IsNullOrEmpty(fnotes)) { <span style="color:var(--text-muted);font-size:12px"> — @fnotes</span> }</td>
+                        <td><span class="badge">@TranslateCategory(fcat)</span></td>
+                        <td class="@(fstock <= 0 ? "text-danger" : "")">@fstock @funit</td>
+                        <td>@fcost ETB</td>
+                        <td style="white-space:nowrap">
+                            @if (State.IsOwnerOrManager && fid != null)
+                            {
+                                <button class="btn btn-sm btn-outline" @onclick="() => OpenRestock(f)">@L["feed.restock"]</button>
+                                <button class="btn btn-sm btn-outline" style="margin-left:4px" @onclick="() => OpenEdit(f)">@L["btn.edit"]</button>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!feeds.Any())
+                {
+                    <tr><td colspan="5" class="empty-row">@L["feed.empty"]</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    List<System.Text.Json.JsonElement> feeds = new();
+    bool loading, showForm, saving;
+    string formError = "";
+    Guid? editingId;
+    Guid? restockingId;
+    string restockingName = "";
+    decimal restockQty = 0;
+    decimal? restockCost = null;
+
+    FeedFormModel form = new();
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        try
+        {
+            var result = await Http.GetFromJsonAsync<System.Text.Json.JsonElement[]>("/api/feed");
+            feeds = result?.ToList() ?? new();
+        }
+        catch { }
+        finally { loading = false; }
+    }
+
+    async Task SaveAsync()
+    {
+        formError = "";
+        if (string.IsNullOrWhiteSpace(form.Name)) { formError = L["feed.err.name"]; return; }
+        saving = true;
+        try
+        {
+            System.Net.Http.HttpResponseMessage resp;
+            if (editingId.HasValue)
+                resp = await Http.PutAsJsonAsync($"/api/feed/{editingId}", new { form.Name, form.Category, form.Unit, form.CostPerUnit, form.Notes });
+            else
+                resp = await Http.PostAsJsonAsync("/api/feed", new { form.Name, form.Category, form.Unit, InitialStock = form.InitialStock, form.CostPerUnit, form.Notes });
+
+            if (resp.IsSuccessStatusCode) { CloseForm(); await LoadAsync(); }
+            else formError = L["feed.err.save"];
+        }
+        catch { formError = L["feed.err.save"]; }
+        finally { saving = false; }
+    }
+
+    async Task DoRestockAsync()
+    {
+        if (restockingId == null || restockQty <= 0) { formError = L["feed.err.qty"]; return; }
+        saving = true;
+        try
+        {
+            var resp = await Http.PostAsJsonAsync($"/api/feed/{restockingId}/restock",
+                new { Quantity = restockQty, CostPerUnit = restockCost });
+            if (resp.IsSuccessStatusCode) { CloseRestock(); await LoadAsync(); }
+            else formError = L["feed.err.save"];
+        }
+        catch { formError = L["feed.err.save"]; }
+        finally { saving = false; }
+    }
+
+    void OpenEdit(System.Text.Json.JsonElement f)
+    {
+        editingId = f.TryGetProperty("id", out var i) && Guid.TryParse(i.GetString(), out var g) ? g : (Guid?)null;
+        form = new FeedFormModel
+        {
+            Name        = f.TryGetProperty("name",        out var n) ? n.GetString() ?? "" : "",
+            Category    = f.TryGetProperty("category",    out var c) ? c.GetString() ?? "Roughage" : "Roughage",
+            Unit        = f.TryGetProperty("unit",        out var u) ? u.GetString() ?? "kg" : "kg",
+            CostPerUnit = f.TryGetProperty("costPerUnit", out var p) ? p.GetDecimal() : 0,
+            Notes       = f.TryGetProperty("notes",       out var nt) ? nt.GetString() : null,
+        };
+        showForm = true;
+        formError = "";
+    }
+
+    void OpenRestock(System.Text.Json.JsonElement f)
+    {
+        restockingId   = f.TryGetProperty("id",   out var i) && Guid.TryParse(i.GetString(), out var g) ? g : (Guid?)null;
+        restockingName = f.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+        restockQty     = 0;
+        restockCost    = null;
+        formError      = "";
+    }
+
+    void CloseForm()   { showForm = false; editingId = null; form = new(); formError = ""; }
+    void CloseRestock(){ restockingId = null; formError = ""; }
+
+    string TranslateCategory(string? cat) => cat switch
+    {
+        "Roughage"    => L["feed.cat.roughage"],
+        "Concentrate" => L["feed.cat.concentrate"],
+        "Supplement"  => L["feed.cat.supplement"],
+        "Mineral"     => L["feed.cat.mineral"],
+        _             => cat ?? ""
+    };
+
+    class FeedFormModel
+    {
+        public string Name { get; set; } = "";
+        public string Category { get; set; } = "Roughage";
+        public string Unit { get; set; } = "kg";
+        public decimal InitialStock { get; set; } = 0;
+        public decimal CostPerUnit { get; set; } = 0;
+        public string? Notes { get; set; }
+    }
+}

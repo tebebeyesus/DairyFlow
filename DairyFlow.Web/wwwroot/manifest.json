@@ -1,0 +1,17 @@
+{
+  "name": "DairyFlow",
+  "short_name": "DairyFlow",
+  "description": "Multi-tenant Dairy Farm Management System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2d7a4f",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

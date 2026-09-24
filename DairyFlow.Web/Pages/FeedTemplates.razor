@@ -1,0 +1,238 @@
+@page "/feed-templates"
+@inject HttpClient Http
+@inject AppState State
+@implements IDisposable
+@using System.Text.Json
+
+<PageTitle>@L["tmpl.title"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">🧾 @L["tmpl.title"]</div>
+    <button class="btn btn-primary" @onclick="OpenAdd">@L["tmpl.add"]</button>
+</div>
+
+<p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">@L["tmpl.intro"]</p>
+
+@* ── Add / edit modal ── *@
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="() => showForm = false">
+        <div class="modal" @onclick:stopPropagation style="max-width:620px">
+            <h3>@L["tmpl.formtitle"]</h3>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">@L["tmpl.gender"]</label>
+                    <select class="form-control" @bind="form.AnimalType">
+                        <option value="Cow">@L["type.cow"]</option>
+                        <option value="Ox">@L["type.ox"]</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">@L["tmpl.stage"]</label>
+                    <select class="form-control" @bind="form.Stage">
+                        <option value="Any">@L["tmpl.stage.any"]</option>
+                        <option value="Milking">@L["status.milking"]</option>
+                        <option value="Dry">@L["status.dry"]</option>
+                        <option value="Pregnant">@L["status.pregnant"]</option>
+                        <option value="Calf">@L["status.calf"]</option>
+                        <option value="Sick">@L["status.sick"]</option>
+                    </select>
+                </div>
+            </div>
+
+            <label class="form-label">@L["tmpl.feeds"]</label>
+            <table class="data-table" style="margin-bottom:8px">
+                <thead>
+                    <tr>
+                        <th style="width:58%">@L["feedlog.feed"]</th>
+                        <th>@L["feedlog.qty_kg"]</th>
+                        <th style="width:36px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in form.Items)
+                    {
+                        <tr>
+                            <td>
+                                <select class="form-control" @bind="item.FeedIdStr">
+                                    <option value="">— @L["feedlog.feedph"] —</option>
+                                    @foreach (var f in feeds)
+                                    {
+                                        <option value="@f.Id.ToString()">@f.Name (@f.Unit)</option>
+                                    }
+                                </select>
+                            </td>
+                            <td><input type="number" step="0.1" min="0.1" class="form-control" @bind="item.QuantityKg" /></td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline" disabled="@(form.Items.Count <= 1)" @onclick="() => RemoveItem(item)">✕</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <button type="button" class="btn btn-sm btn-outline" @onclick="AddItem">@L["feedlog.addanother"]</button>
+
+            <div class="form-group" style="margin-top:14px">
+                <label class="form-label">@L["lbl.notes"]</label>
+                <input class="form-control" @bind="form.Notes" />
+            </div>
+
+            @if (!string.IsNullOrEmpty(formError)) { <div class="alert alert-danger">@formError</div> }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="() => showForm = false">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">@(saving ? L["btn.saving"] : L["btn.save"])</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading) { <div class="loading-spinner">@L["btn.saving"]</div> }
+else
+{
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["tmpl.gender"]</th>
+                    <th>@L["tmpl.stage"]</th>
+                    <th>@L["tmpl.feeds"]</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in templates)
+                {
+                    var tid   = Str(t, "id");
+                    var atype = Str(t, "animalType");
+                    var stage = Str(t, "stage");
+                    var items = t.TryGetProperty("items", out var it) && it.ValueKind == JsonValueKind.Array ? it.EnumerateArray().ToList() : new List<JsonElement>();
+                    <tr>
+                        <td><span class="badge @(atype == "Ox" ? "badge-blue" : "badge-green")">@TranslateType(atype)</span></td>
+                        <td>@TranslateStage(stage)</td>
+                        <td>
+                            @if (items.Any())
+                            {
+                                @string.Join("  ·  ", items.Select(i =>
+                                    $"{(i.TryGetProperty("feedName", out var fn) ? fn.GetString() : "")} {(i.TryGetProperty("quantityKg", out var q) ? q.GetDecimal().ToString("0.#") : "0")} {(i.TryGetProperty("feedUnit", out var fu) ? fu.GetString() : "kg")}"))
+                            }
+                            else { <span style="color:var(--text-muted)">—</span> }
+                        </td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-outline" @onclick="() => OpenEdit(t)">@L["btn.edit"]</button>
+                            <button class="btn btn-sm btn-outline" @onclick="() => DeleteAsync(tid)">@L["acct.delete"]</button>
+                        </td>
+                    </tr>
+                }
+                @if (!templates.Any()) { <tr><td colspan="4" class="empty-row">@L["tmpl.empty"]</td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    List<JsonElement> templates = new();
+    List<FeedItem> feeds = new();
+    bool loading, showForm, saving;
+    string formError = "";
+    TemplateForm form = new();
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var feedsTask = Http.GetFromJsonAsync<FeedItem[]>("/api/feed");
+        await LoadAsync();
+        feeds = (await feedsTask)?.ToList() ?? new();
+    }
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        try { templates = await Http.GetFromJsonAsync<List<JsonElement>>("/api/feeding-templates") ?? new(); }
+        catch { }
+        finally { loading = false; }
+    }
+
+    void OpenAdd()
+    {
+        form = new TemplateForm();
+        form.Items.Add(new TemplateLine());
+        formError = "";
+        showForm = true;
+    }
+
+    void OpenEdit(JsonElement t)
+    {
+        form = new TemplateForm
+        {
+            AnimalType = Str(t, "animalType"),
+            Stage = Str(t, "stage"),
+            Notes = Str(t, "notes"),
+        };
+        var items = t.TryGetProperty("items", out var it) && it.ValueKind == JsonValueKind.Array ? it.EnumerateArray().ToList() : new List<JsonElement>();
+        form.Items = items.Select(i => new TemplateLine
+        {
+            FeedIdStr  = i.TryGetProperty("feedId", out var f) ? f.GetString() ?? "" : "",
+            QuantityKg = i.TryGetProperty("quantityKg", out var q) ? q.GetDecimal() : 0,
+        }).ToList();
+        if (!form.Items.Any()) form.Items.Add(new TemplateLine());
+        formError = "";
+        showForm = true;
+    }
+
+    void AddItem() => form.Items.Add(new TemplateLine());
+    void RemoveItem(TemplateLine item) { if (form.Items.Count > 1) form.Items.Remove(item); }
+
+    async Task SaveAsync()
+    {
+        formError = "";
+        var lines = form.Items
+            .Where(i => Guid.TryParse(i.FeedIdStr, out _) && i.QuantityKg > 0)
+            .Select(i => new { feedId = Guid.Parse(i.FeedIdStr), quantityKg = i.QuantityKg })
+            .ToList();
+        if (lines.Count == 0) { formError = L["feedlog.err.items"]; return; }
+
+        saving = true;
+        try
+        {
+            var payload = new { form.AnimalType, form.Stage, form.Notes, Items = lines };
+            var resp = await Http.PostAsJsonAsync("/api/feeding-templates", payload);
+            if (resp.IsSuccessStatusCode) { showForm = false; await LoadAsync(); }
+            else { formError = $"{L["err.savefail"]} ({(int)resp.StatusCode})"; }
+        }
+        catch (Exception ex) { formError = $"{L["err.savefail"]}: {ex.Message}"; }
+        finally { saving = false; }
+    }
+
+    async Task DeleteAsync(string id)
+    {
+        var resp = await Http.DeleteAsync($"/api/feeding-templates/{id}");
+        if (resp.IsSuccessStatusCode) await LoadAsync();
+    }
+
+    static string Str(JsonElement e, string k)
+        => e.TryGetProperty(k, out var v) && v.ValueKind != JsonValueKind.Null ? (v.GetString() ?? "") : "";
+
+    string TranslateType(string? t) => t switch { "Cow" => L["type.cow"], "Ox" => L["type.ox"], _ => t ?? "" };
+    string TranslateStage(string? s) => s switch
+    {
+        "Any" => L["tmpl.stage.any"], "Milking" => L["status.milking"], "Dry" => L["status.dry"],
+        "Pregnant" => L["status.pregnant"], "Calf" => L["status.calf"], "Sick" => L["status.sick"], _ => s ?? ""
+    };
+
+    class TemplateForm
+    {
+        public string AnimalType { get; set; } = "Cow";
+        public string Stage { get; set; } = "Milking";
+        public string? Notes { get; set; }
+        public List<TemplateLine> Items { get; set; } = new();
+    }
+    class TemplateLine
+    {
+        public string FeedIdStr { get; set; } = "";
+        public decimal QuantityKg { get; set; } = 5;
+    }
+    class FeedItem { public Guid Id { get; set; } public string Name { get; set; } = ""; public string Unit { get; set; } = "kg"; public decimal CurrentStock { get; set; } }
+}

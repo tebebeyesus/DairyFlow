@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2d7a4f" />
+    <title>DairyFlow</title>
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/dairyflow.css" />
+    <link rel="stylesheet" href="css/dashboard.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" type="image/png" href="icon-512.png" />
+</head>
+<body>
+    <div id="app">
+        <div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;gap:16px;">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <circle cx="24" cy="24" r="24" fill="#2d7a4f"/>
+                <text x="24" y="30" text-anchor="middle" fill="white" font-size="20" font-family="sans-serif">🐄</text>
+            </svg>
+            <p style="color:#2d7a4f;font-family:sans-serif;font-weight:600;">Loading DairyFlow...</p>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+
+    <script src="js/offline-storage.js"></script>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        // Register service worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js');
+        }
+    </script>
+</body>
+</html>

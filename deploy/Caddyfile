@@ -1,0 +1,7 @@
+# Caddy automatically obtains and renews a free Let's Encrypt HTTPS certificate for the domain.
+# Requirements: the DuckDNS domain resolves to this server's public IP, and ports 80 + 443 are open.
+# HTTPS is required for the PWA (installable app + offline service worker) to work on phones.
+
+{$DOMAIN} {
+    reverse_proxy app:5000
+}

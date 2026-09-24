@@ -1,0 +1,54 @@
+@inject ISyncService Sync
+@implements IDisposable
+
+<div class="sync-indicator @GetStatusClass()">
+    <span class="sync-icon">@GetIcon()</span>
+    <span class="sync-label">@GetLabel()</span>
+    @if (Sync.CurrentStatus == SyncStatus.Pending || Sync.CurrentStatus == SyncStatus.Error)
+    {
+        <button class="sync-btn" @onclick="SyncNow">@L["sync.btn"]</button>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Sync.SyncStatusChanged += OnStatusChanged;
+    }
+
+    private void OnStatusChanged(SyncStatus _) => InvokeAsync(StateHasChanged);
+
+    private async Task SyncNow() => await Sync.SyncNowAsync();
+
+    private string GetStatusClass() => Sync.CurrentStatus switch
+    {
+        SyncStatus.Synced  => "sync-ok",
+        SyncStatus.Syncing => "sync-busy",
+        SyncStatus.Pending => "sync-pending",
+        SyncStatus.Offline => "sync-offline",
+        SyncStatus.Error   => "sync-error",
+        _                  => ""
+    };
+
+    private string GetIcon() => Sync.CurrentStatus switch
+    {
+        SyncStatus.Synced  => "✓",
+        SyncStatus.Syncing => "⟳",
+        SyncStatus.Pending => $"↑{Sync.PendingCount}",
+        SyncStatus.Offline => "✈",
+        SyncStatus.Error   => "!",
+        _                  => ""
+    };
+
+    private string GetLabel() => Sync.CurrentStatus switch
+    {
+        SyncStatus.Synced  => L["sync.synced"],
+        SyncStatus.Syncing => L["sync.syncing"],
+        SyncStatus.Pending => L["sync.pending"],
+        SyncStatus.Offline => L["sync.offline"],
+        SyncStatus.Error   => L["sync.error"],
+        _                  => ""
+    };
+
+    public void Dispose() => Sync.SyncStatusChanged -= OnStatusChanged;
+}

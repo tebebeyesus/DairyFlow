@@ -1,0 +1,444 @@
+@page "/milk"
+@inject HttpClient Http
+@inject AppState State
+@inject IOfflineStorageService Store
+@inject ISyncService Sync
+@implements IDisposable
+
+<PageTitle>@L["nav.milk"] — DairyFlow</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">🥛 @L["milk.title"]</div>
+    <button class="btn btn-primary" @onclick="OpenAdd">@L["milk.add"]</button>
+</div>
+
+@* ── Date range filter (defaults to the last 2 weeks) ── *@
+<div class="filter-bar">
+    <label class="form-label" style="margin:0;white-space:nowrap">@L["lbl.from"]:</label>
+    <input type="date" class="form-control form-control-sm" value="@fromDate" @onchange="OnFromChanged" style="width:160px" />
+    <label class="form-label" style="margin:0;white-space:nowrap">@L["lbl.to"]:</label>
+    <input type="date" class="form-control form-control-sm" value="@toDate" @onchange="OnToChanged" style="width:160px" />
+</div>
+
+<div class="summary-bar">
+    @foreach (var s in summary.Take(7))
+    {
+        <div class="summary-day">
+            <span class="summary-date">@(s.Date.Length >= 5 ? s.Date.Substring(5) : s.Date)</span>
+            <span class="summary-liters">@s.TotalLiters.ToString("F1")L</span>
+        </div>
+    }
+</div>
+
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="() => showForm = false">
+        <div class="modal" @onclick:stopPropagation style="max-width:680px">
+            <h3>@L["milk.formtitle"]</h3>
+            <div class="form-group">
+                <label class="form-label">@L["lbl.date"]</label>
+                <input type="date" class="form-control" value="@logDateStr"
+                       @onchange="OnFormDateChanged" style="width:200px" />
+            </div>
+
+            <label class="form-label">@L["milk.allcows"]</label>
+            <div class="data-table-wrapper" style="max-height:48vh;overflow-y:auto;margin-bottom:0">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>@L["milk.col.cow"]</th>
+                            <th style="width:110px">@L["milk.am"]</th>
+                            <th style="width:110px">@L["milk.pm"]</th>
+                            <th style="width:150px">@L["milk.quality"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in batchRows)
+                        {
+                            <tr>
+                                <td><strong>@row.TagNumber</strong>@if (!string.IsNullOrEmpty(row.Name)) { <span style="color:var(--text-muted)"> @row.Name</span> }</td>
+                                <td><input type="number" step="0.1" min="0" class="form-control form-control-sm" @bind="row.AMSession" /></td>
+                                <td><input type="number" step="0.1" min="0" class="form-control form-control-sm" @bind="row.PMSession" /></td>
+                                <td>
+                                    <select class="form-control form-control-sm" @bind="row.Quality">
+                                        <option value="">@L["milk.q.normal"]</option>
+                                        <option value="Fresh">@L["milk.q.fresh"]</option>
+                                        <option value="Mastitis">@L["milk.q.mastitis"]</option>
+                                        <option value="Colostrum">@L["milk.q.colostrum"]</option>
+                                    </select>
+                                </td>
+                            </tr>
+                        }
+                        @if (!batchRows.Any()) { <tr><td colspan="4" class="empty-row">@L["milk.nocows"]</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (!string.IsNullOrEmpty(formError)) { <div class="alert alert-danger" style="margin-top:12px">@formError</div> }
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="() => showForm = false">@L["btn.cancel"]</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@saving">
+                    @(saving ? L["btn.saving"] : L["btn.save"])
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading) { <div class="loading-spinner">@L["btn.saving"]</div> }
+else
+{
+    <div class="data-table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>@L["lbl.date"]</th>
+                    <th>@L["milk.col.am"]</th>
+                    <th>@L["milk.col.pm"]</th>
+                    <th>@L["milk.col.total"]</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var grp in logs
+                    .GroupBy(l => l.TryGetProperty("logDate", out var d) ? (d.GetString() ?? "")[..Math.Min(10, (d.GetString() ?? "").Length)] : "")
+                    .OrderByDescending(g => g.Key))
+                {
+                    var date     = grp.Key;
+                    var amTot    = grp.Sum(l => l.TryGetProperty("amSession", out var a) ? a.GetDecimal() : 0);
+                    var pmTot    = grp.Sum(l => l.TryGetProperty("pmSession", out var p) ? p.GetDecimal() : 0);
+                    var dayTotal = amTot + pmTot;
+                    var cowCount = grp.Count();
+                    var expanded = expandedDates.Contains(date);
+
+                    @* ── Master row: date · AM · PM · total ── *@
+                    <tr class="md-parent @(expanded ? "is-open" : "")" @onclick="() => ToggleDate(date)">
+                        <td>
+                            <span class="md-caret">@(expanded ? "▾" : "▸")</span>
+                            <strong>@date</strong>
+                            <span style="color:var(--text-muted);font-size:12px"> · @cowCount @L["feedlog.cows"]</span>
+                        </td>
+                        <td>@amTot.ToString("F1")</td>
+                        <td>@pmTot.ToString("F1")</td>
+                        <td><strong>@dayTotal.ToString("F1")L</strong></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline" @onclick="() => EditDay(date)" @onclick:stopPropagation>@L["btn.edit"]</button>
+                        </td>
+                    </tr>
+
+                    @* ── Child rows: per-cow AM · PM · total · quality ── *@
+                    @if (expanded)
+                    {
+                        <tr class="md-child-head">
+                            <td style="padding-left:34px">@L["milk.col.cow"]</td>
+                            <td>@L["milk.col.am"]</td>
+                            <td>@L["milk.col.pm"]</td>
+                            <td>@L["milk.col.total"]</td>
+                            <td>@L["milk.col.quality"]</td>
+                        </tr>
+                        @foreach (var log in grp)
+                        {
+                            var cid     = log.TryGetProperty("cowId", out var ci) && ci.ValueKind == System.Text.Json.JsonValueKind.String ? ci.GetString() : null;
+                            var resolved = ResolveCow(cid, log);
+                            var cowTag  = resolved.tag;
+                            var cowName = resolved.name;
+                            var am      = log.TryGetProperty("amSession", out var a) ? a.GetDecimal() : 0;
+                            var pm      = log.TryGetProperty("pmSession", out var p) ? p.GetDecimal() : 0;
+                            var quality = log.TryGetProperty("quality",   out var q) && q.ValueKind != System.Text.Json.JsonValueKind.Null ? q.GetString() : "-";
+
+                            <tr class="md-child">
+                                <td style="padding-left:34px"><strong>@cowTag</strong>@if (!string.IsNullOrEmpty(cowName)) { <span style="color:var(--text-muted)"> @cowName</span> }</td>
+                                <td>@am.ToString("F1")</td>
+                                <td>@pm.ToString("F1")</td>
+                                <td>@((am + pm).ToString("F1"))L</td>
+                                <td>@quality</td>
+                            </tr>
+                        }
+                    }
+                }
+                @if (!logs.Any()) { <tr><td colspan="5" class="empty-row">@L["milk.empty"]</td></tr> }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    List<System.Text.Json.JsonElement> logs = new(), cows = new();
+    List<DaySummary> summary = new();
+    Dictionary<string, (string tag, string? name)> cowMap = new();
+    bool loading, showForm, saving;
+    string formError = "";
+    string logDateStr = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+    // Default view: the last 2 weeks (14 days including today).
+    string fromDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-13)).ToString("yyyy-MM-dd");
+    string toDate   = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+    HashSet<string> expandedDates = new();
+    List<MilkBatchRow> batchRows = new();
+
+    protected override void OnInitialized() => State.OnChange += StateHasChanged;
+    public void Dispose() => State.OnChange -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCowsAsync();
+        await LoadLogsAsync();
+    }
+
+    async Task LoadCowsAsync()
+    {
+        try
+        {
+            var cowsResult = await Http.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/cows?status=Milking&pageSize=200");
+            cows = cowsResult.TryGetProperty("data", out var d) ? d.EnumerateArray().ToList() : new();
+            foreach (var c in cows) await Store.SaveAsync("Cows", c);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — use the cached herd, milking animals only.
+            var all = await Store.GetAllAsync<System.Text.Json.JsonElement>("Cows");
+            cows = all.Where(c =>
+                (!c.TryGetProperty("isActive", out var a) || a.ValueKind != System.Text.Json.JsonValueKind.False) &&
+                (c.TryGetProperty("status", out var s) && s.GetString() == "Milking")).ToList();
+        }
+        catch { }
+        BuildCowMap();
+    }
+
+    void BuildCowMap()
+    {
+        cowMap = new();
+        foreach (var c in cows)
+        {
+            var id = c.TryGetProperty("id", out var i) ? i.GetString() : null;
+            if (id == null) continue;
+            var tag  = c.TryGetProperty("tagNumber", out var t) ? t.GetString() ?? "" : "";
+            var name = c.TryGetProperty("name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String ? n.GetString() : null;
+            cowMap[id] = (tag, name);
+        }
+    }
+
+    // Resolve a milk log's cow for display. Prefers the cached cow list (works offline); falls
+    // back to a nested `cow` object if the server included one.
+    (string tag, string? name) ResolveCow(string? cowId, System.Text.Json.JsonElement log)
+    {
+        if (cowId != null && cowMap.TryGetValue(cowId, out var hit)) return hit;
+        if (log.TryGetProperty("cow", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            var tag  = c.TryGetProperty("tagNumber", out var t) ? t.GetString() ?? "" : "";
+            var name = c.TryGetProperty("name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String ? n.GetString() : null;
+            return (tag, name);
+        }
+        return ("", null);
+    }
+
+    async Task LoadLogsAsync()
+    {
+        loading = true;
+        try
+        {
+            logs = await Http.GetFromJsonAsync<List<System.Text.Json.JsonElement>>($"/api/milk?from={fromDate}&to={toDate}") ?? new();
+            foreach (var l in logs) await Store.SaveAsync("MilkLogs", l);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — read the range from the local snapshot.
+            logs = await ReadLocalLogsAsync(fromDate, toDate);
+        }
+        catch { }
+        finally
+        {
+            await BuildSummaryAsync();
+            loading = false;
+        }
+    }
+
+    // Offline read: all locally-stored logs whose date falls within [from, to] (yyyy-MM-dd compares lexically).
+    async Task<List<System.Text.Json.JsonElement>> ReadLocalLogsAsync(string from, string to)
+    {
+        var all = await Store.GetAllAsync<System.Text.Json.JsonElement>("MilkLogs");
+        return all.Where(l =>
+        {
+            var d = LogDateKey(l);
+            return d.Length >= 10 && string.CompareOrdinal(d, from) >= 0 && string.CompareOrdinal(d, to) <= 0;
+        }).ToList();
+    }
+
+    // Summary bar = per-day totals for the last 7 days, computed from local storage (works online + offline).
+    async Task BuildSummaryAsync()
+    {
+        var all = await Store.GetAllAsync<System.Text.Json.JsonElement>("MilkLogs");
+        summary = all
+            .GroupBy(LogDateKey)
+            .Where(g => g.Key.Length >= 10)
+            .Select(g => new DaySummary
+            {
+                Date = g.Key,
+                TotalLiters = g.Sum(l =>
+                    (l.TryGetProperty("amSession", out var a) ? a.GetDecimal() : 0) +
+                    (l.TryGetProperty("pmSession", out var p) ? p.GetDecimal() : 0))
+            })
+            .OrderByDescending(s => s.Date)
+            .Take(7)
+            .ToList();
+    }
+
+    static string LogDateKey(System.Text.Json.JsonElement log)
+    {
+        var raw = log.TryGetProperty("logDate", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String ? d.GetString() ?? "" : "";
+        return raw.Length >= 10 ? raw[..10] : raw;
+    }
+
+    async Task OnFromChanged(ChangeEventArgs e) { fromDate = e.Value?.ToString() ?? fromDate; await LoadLogsAsync(); }
+    async Task OnToChanged(ChangeEventArgs e)   { toDate   = e.Value?.ToString() ?? toDate;   await LoadLogsAsync(); }
+
+    void ToggleDate(string date) { if (!expandedDates.Remove(date)) expandedDates.Add(date); }
+
+    async Task OpenAdd()
+    {
+        formError = "";
+        logDateStr = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+        await BuildBatchRowsAsync();
+        showForm = true;
+    }
+
+    // Edit a whole day: open the per-cow grid pre-filled for that date.
+    async Task EditDay(string date)
+    {
+        formError = "";
+        logDateStr = date;
+        await BuildBatchRowsAsync();
+        showForm = true;
+    }
+
+    async Task OnFormDateChanged(ChangeEventArgs e)
+    {
+        logDateStr = e.Value?.ToString() ?? logDateStr;
+        await BuildBatchRowsAsync();
+    }
+
+    // Build one editable row per available cow, pre-filling any milk already logged for the date.
+    async Task BuildBatchRowsAsync()
+    {
+        var existing = new Dictionary<string, (decimal am, decimal pm, string? q)>();
+        List<System.Text.Json.JsonElement> res;
+        try
+        {
+            res = await Http.GetFromJsonAsync<List<System.Text.Json.JsonElement>>(
+                $"/api/milk?from={logDateStr}&to={logDateStr}") ?? new();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            res = await ReadLocalLogsAsync(logDateStr, logDateStr);   // offline pre-fill
+        }
+        catch { res = new(); }
+
+        foreach (var l in res)
+        {
+            var cid = l.TryGetProperty("cowId", out var c) ? c.GetString() : null;
+            if (cid == null) continue;
+            var am = l.TryGetProperty("amSession", out var a) ? a.GetDecimal() : 0;
+            var pm = l.TryGetProperty("pmSession", out var p) ? p.GetDecimal() : 0;
+            var q  = l.TryGetProperty("quality", out var qq) && qq.ValueKind == System.Text.Json.JsonValueKind.String
+                     ? qq.GetString() : null;
+            existing[cid] = (am, pm, q);
+        }
+
+        batchRows = cows.Select(c =>
+        {
+            var id   = c.TryGetProperty("id",        out var i) ? i.GetString() ?? "" : "";
+            var tag  = c.TryGetProperty("tagNumber", out var t) ? t.GetString() ?? "" : "";
+            var name = c.TryGetProperty("name",      out var n) && n.ValueKind != System.Text.Json.JsonValueKind.Null
+                       ? n.GetString() : null;
+            var pre  = existing.TryGetValue(id, out var e) ? e : (0m, 0m, (string?)null);
+            return new MilkBatchRow { CowId = id, TagNumber = tag, Name = name, AMSession = pre.Item1, PMSession = pre.Item2, Quality = pre.Item3 };
+        }).ToList();
+    }
+
+    async Task SaveAsync()
+    {
+        formError = "";
+        if (!DateOnly.TryParseExact(logDateStr, "yyyy-MM-dd", out var logDate)) { formError = L["err.savefail"]; return; }
+
+        // Only cows with milk entered are sent.
+        var items = batchRows
+            .Where(r => Guid.TryParse(r.CowId, out _) && (r.AMSession > 0 || r.PMSession > 0))
+            .Select(r => new { cowId = Guid.Parse(r.CowId), aMSession = r.AMSession, pMSession = r.PMSession, quality = r.Quality })
+            .ToList();
+        if (items.Count == 0) { formError = L["milk.err.empty"]; return; }
+
+        saving = true;
+        var payload = new { logDate = logDate.ToString("yyyy-MM-dd"), items };
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("/api/milk/batch", payload);
+            saving = false;
+            if (resp.IsSuccessStatusCode) { showForm = false; await LoadLogsAsync(); }
+            else { formError = L["err.savefail"]; }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // Offline — write each cow's log locally and queue it. Never lose the entry.
+            await SaveMilkOfflineAsync(logDate);
+            saving = false;
+            showForm = false;
+            await LoadLogsAsync();
+        }
+    }
+
+    async Task SaveMilkOfflineAsync(DateOnly logDate)
+    {
+        var dateStr = logDate.ToString("yyyy-MM-dd");
+
+        // Reuse an existing local log's Id for this cow+date so a repeat entry updates in place
+        // (and the server upsert stays idempotent) instead of creating a duplicate row.
+        var idByCow = new Dictionary<string, Guid>();
+        foreach (var l in await ReadLocalLogsAsync(dateStr, dateStr))
+        {
+            var cid = l.TryGetProperty("cowId", out var c) ? c.GetString() : null;
+            var lid = l.TryGetProperty("id", out var i) ? i.GetString() : null;
+            if (cid != null && Guid.TryParse(lid, out var g)) idByCow[cid] = g;
+        }
+
+        foreach (var r in batchRows.Where(r => Guid.TryParse(r.CowId, out _) && (r.AMSession > 0 || r.PMSession > 0)))
+        {
+            var id = idByCow.TryGetValue(r.CowId, out var existing) ? existing : Guid.NewGuid();
+
+            var localLog = new
+            {
+                id = id.ToString(),
+                cowId = r.CowId,
+                logDate = dateStr,
+                amSession = r.AMSession,
+                pmSession = r.PMSession,
+                quality = r.Quality
+            };
+            await Store.SaveAsync("MilkLogs", localLog);
+
+            var payload = new
+            {
+                cowId = Guid.Parse(r.CowId),
+                logDate = dateStr,
+                aMSession = r.AMSession,
+                pMSession = r.PMSession,
+                quality = r.Quality
+            };
+            await Sync.QueueChangeAsync("MilkLog", "CREATE", id, payload);
+        }
+    }
+
+    class DaySummary
+    {
+        public string Date { get; set; } = "";
+        public decimal TotalLiters { get; set; }
+    }
+
+    class MilkBatchRow
+    {
+        public string CowId { get; set; } = "";
+        public string TagNumber { get; set; } = "";
+        public string? Name { get; set; }
+        public decimal AMSession { get; set; }
+        public decimal PMSession { get; set; }
+        public string? Quality { get; set; }
+    }
+}
