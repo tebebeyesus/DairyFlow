@@ -4,11 +4,24 @@ using DairyFlow.Infrastructure.Data;
 using DairyFlow.Core.Entities;
 using DairyFlow.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Reverse proxy ─────────────────────────────────────────────
+// Railway and Caddy both terminate TLS upstream and forward plain HTTP, so without
+// this the app sees every request as insecure — breaking scheme-aware URL generation
+// and UseHttpsRedirection. The proxy is not on a known private subnet in either case,
+// so the network allow-lists are cleared rather than enumerated.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // ── Database ──────────────────────────────────────────────────
 builder.Services.AddDbContext<DairyFlowDbContext>(options =>
@@ -138,6 +151,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseCors("DairyFlowPolicy");
 
@@ -383,5 +397,8 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.Urls.Add("http://0.0.0.0:5000");
+// Railway assigns the listening port via $PORT and health-checks exactly that port;
+// falls back to 5000 for local runs and the docker-compose deployment.
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+app.Urls.Add($"http://0.0.0.0:{port}");
 await app.RunAsync();

@@ -12,6 +12,6 @@ RUN dotnet publish DairyFlow.API/DairyFlow.API.csproj -c Release -o /app/publish
 FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-# Program.cs binds Kestrel to http://0.0.0.0:5000 inside the container.
+# Program.cs binds Kestrel to $PORT when set (Railway and most PaaS), else 0.0.0.0:5000.
 EXPOSE 5000
 ENTRYPOINT ["dotnet", "DairyFlow.API.dll"]
